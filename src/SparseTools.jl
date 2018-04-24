@@ -1,5 +1,5 @@
 module SparseTools
 
-# package code goes here
+include("spqr_rank.jl")
 
 end # module
