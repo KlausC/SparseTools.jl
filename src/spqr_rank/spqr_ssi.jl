@@ -409,7 +409,7 @@ function spqr_ssi(R::AbstractMatrix{T}, opts::Options{T}) where T
         # this recalculates est_error_bounds(nsvals_large)
         U0 = R * V[:,1:nsvals_large] - U[:,1:nsvals_large] * Diagonal(S[1:nsvals_large])
         U0 = [U0; R' * U[:,1:nsvals_large] - V[:,1:nsvals_large] * Diagonal(S[1:nsvals_large])]
-        est_error_bounds[1:nsvals_large] = sqrt(sum(U0 .* conj(U0) )) / sqrt(2)
+        est_error_bounds[1:nsvals_large] = sqrt(sum(abs2.(U0) )) / sqrt(2)
     end
 
     # this code calculates estimated error bounds for singular values
@@ -417,7 +417,7 @@ function spqr_ssi(R::AbstractMatrix{T}, opts::Options{T}) where T
     ibegin = nsvals_large + 1
     U0 = R * V[:,ibegin:nkeep] - U[:,ibegin:nkeep] * Diagonal(S[ibegin:nkeep])
     U0 = [U0; R' * U[:,ibegin:nkeep] - V[:,ibegin:nkeep] * Diagonal(S[ibegin:nkeep])]
-    est_error_bounds[ibegin:nkeep] = sqrt(sum(U0 .* conj(U0) )) / sqrt(2)
+    est_error_bounds[ibegin:nkeep] = sqrt(sum(abs2.(U0) )) / sqrt(2)
     # Note that
     #    [ 0      R ]  [ U ]   -    [ U ] * S = [ R * V - U * S ]
     #    [ R'     0 ]  [ V ]   -    [ V ]       [      0        ].
