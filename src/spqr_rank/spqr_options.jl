@@ -90,6 +90,14 @@ mutable struct Statistics{T<:AbstractFloat}
     nsvals_large_found::Int
 end
 
+function Statistics(::Type{T}; tol=0.0, normest_A=1.0) where T
+    Statistics{T}(-1, -1,
+                          tol, normest_A, -1.0,
+                          T[], T[], T[], T[], T[],
+                          0, Options{real(T)}(),
+                          0, 0, 0, 0, 0, 0.0, 0.0, 0)
+end
+
 function Statistics(opts::Options{T}) where T
     Statistics{T}(-1, -1,
                           opts.tol, opts.normest_A, -1.0,
@@ -97,5 +105,6 @@ function Statistics(opts::Options{T}) where T
                           0, opts,
                           0, 0, 0, 0, 0, 0.0, 0.0, 0)
 end
+
 
 

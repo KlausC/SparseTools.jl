@@ -97,20 +97,43 @@ start block power method to estimate the largest singular values and the
     corresponding right singular vectors (in the n-by-k matrix V) and left
     singular vectors (in the m-by-k matrix U) of the m-by-n matrix A
 """
-function spqr_ssp(A::AbstractMatrix{T}, N::Union{UniformScaling{T}, AbstractArray{T}},
-                  opts::Options{T}) where T
+function spqr_ssp(A::AbstractMatrix{T}, N::Union{UniformScaling{T}, AbstractArray{T}};
+            k::Int = 1,   # the # of singular values to compute.
+            min_iters::Int = 4, # min # of iterations before checking convergence.
+            max_iters::Int = 10, # max # of iterations before stopping the iterations.
+#       The default value = 10 appears, with the default value of opts.tol,
+#       to provide sufficient accuracy to correctly determine the numerical
+#       rank when spqr_ssi is called by spqr_basic, spqr_null, spqr_pinv or
+#       spqr_cod in almost all cases, assuming that stats.flag is 0. For
+#       values of opts.tol larger than the default value, a larger value of
+#       opts.ssp_max_iters, for example 100, may be useful.
+            convergence_factor::Real = 0.1, # continue power method iterations until an
+#       estimated bound on the relative error in the approximation
+#       S[k] to singular value number k of A is <= convergence_factor.
+#       The default value = 0.1 appears, with the default value of
+#       opts.tol, to provide sufficient accuracy to correctly determine
+#       the numerical rank in spqr_basic, spqr_null, spqr_pinv or spqr_cod
+#       in almost all cases, assuming that stats.flag is 0.  For values
+#       of opts.tol larger than the default value, a smaller value of
+#       opts.ssp_convergence_factor, for example 0.01, may be useful.      
+            get_details::Int = 1, # determine what statistics to return.
+#       0: basic statistics
+#       1: extensive statistics.
+#       2: basic statistics and a few addional statistics.
+#       See 'help spqr_rank_stats' for details.
+            repeatable::Bool = true # controls the random stream.
+#       false: use the current random number stream.  The state of the stream will
+#           be different when the method returns.  Repeated calls may generate
+#           different results.  Faster for small matrices, however.
+#       true: use a repeatable internal random number stream.  The current stream
+#           will not be affected.  Repeated calls generate the same results.
+    ) where T<:Number
 
     start_tic = time_ns()
-    stats = Statistics(opts)
+    stats = Statistics(real(T))
     stats.time_initialize = time_ns() - start_tic
 
-    k = max(opts.k, 0)
-    min_iters = opts.ssp_min_iters
-    max_iters = opts.ssp_max_iters
-    convergence_factor = opts.ssp_convergence_factor
-    get_details = opts.get_details
-    repeatable = opts.repeatable
-
+    k = max(k, 0)
     private_stream = repeatable ? MersenneTwister(1) : Random.GLOBAL_RNG
     #-------------------------------------------------------------------------------
     # initializations
@@ -128,7 +151,6 @@ function spqr_ssp(A::AbstractMatrix{T}, N::Union{UniformScaling{T}, AbstractArra
         # quick return.  This is not an error condition.
         stats.flag = 0
         stats.est_svals = 0
-        stats.est_error_bounds = 0
         stats.sval_numbers_for_bounds = 0
         U = zeros(m, 0)
         S = zeros(0)
@@ -151,9 +173,10 @@ function spqr_ssp(A::AbstractMatrix{T}, N::Union{UniformScaling{T}, AbstractArra
     X2 = T[]
     kth_est_error_bound = T(0)
 
-    for iters = 1:max_iters
+    iters = 0
+    while iters < max_iters
+        iters += 1
 
-        stats.iters = iters
         V1 = N' * (A' * U)
 
         if get_details == 1
@@ -201,6 +224,7 @@ function spqr_ssp(A::AbstractMatrix{T}, N::Union{UniformScaling{T}, AbstractArra
     end
 
     if get_details == 1
+        stats.iters = iters
         stats.time_iters = time_ns() - t
     end
 
@@ -224,11 +248,11 @@ function spqr_ssp(A::AbstractMatrix{T}, N::Union{UniformScaling{T}, AbstractArra
 
         V1 = N' * (A' * U[:,1:k-1])
         U0 = V1 - V[:,1:k-1] * Diagonal(S[1:k-1])
-        stats.est_error_bounds[1:k-1] = sqrt(sum(abs2.(U0))) / sqrt(2)
+        stats.est_error_bounds[1:k-1] = vec(sqrt.(sum(abs2, U0, 1))) / sqrt(2)
 
         # Note (with V adjusted as above) that
         #    [ 0      B ]  [ U ]   -    [ U ] * S = [       0       ]
-        #    [ B'     0 ]  [ V ]   -    [ V ]       [   A'*U - V*S  ]
+        #    [ B'     0 ]  [ V ]   -    [ V ]       [   B'*U - V*S  ]
         # where B = A or B = A*N (if N is included in the input).  It follows, by
         # Demmel's Applied Numerical Linear Algebra, Theorem 5.5, for i = 1:k, some
         # eigenvalue of
