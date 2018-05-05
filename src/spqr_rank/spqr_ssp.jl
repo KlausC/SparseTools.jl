@@ -248,7 +248,7 @@ function spqr_ssp(A::AbstractMatrix{T}, N::Union{UniformScaling{T}, AbstractArra
 
         V1 = N' * (A' * U[:,1:k-1])
         U0 = V1 - V[:,1:k-1] * Diagonal(S[1:k-1])
-        stats.est_error_bounds[1:k-1] = vec(sqrt.(sum(abs2, U0, 1))) / sqrt(2)
+        stats.est_error_bounds[1:k-1] .= vec(sqrt.(sum(abs2, U0, dims=1))) / sqrt(2)
 
         # Note (with V adjusted as above) that
         #    [ 0      B ]  [ U ]   -    [ U ] * S = [       0       ]
