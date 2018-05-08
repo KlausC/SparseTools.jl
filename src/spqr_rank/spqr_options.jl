@@ -88,6 +88,9 @@ mutable struct Statistics{T<:AbstractFloat}
     norm_R_times_N::T
     norm_R_transpose_times_NT::T
     nsvals_large_found::Int
+    final_blocksize::Int
+    ssi_min_block_used::Int
+    ssi_max_block_used::Int
 end
 
 function Statistics(::Type{T}; tol=0.0, normest_A=1.0) where T
@@ -95,7 +98,7 @@ function Statistics(::Type{T}; tol=0.0, normest_A=1.0) where T
                           tol, normest_A, -1.0,
                           T[], T[], T[], T[], T[],
                           0, Options{real(T)}(),
-                          0, 0, 0, 0, 0, 0.0, 0.0, 0)
+                          0, 0, 0, 0, 0, 0.0, 0.0, 0, -1, -1, -1)
 end
 
 function Statistics(opts::Options{T}) where T

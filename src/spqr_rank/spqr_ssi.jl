@@ -94,9 +94,29 @@ start block power method to estimate the smallest singular
      r by nblock matrix V) and left singular vectors (in the r by
      nblock matrix U) of the n by n matrix R
 """
-function spqr_ssi(R::AbstractMatrix{T}, opts::Options{T}) where T
+function spqr_ssi(R::AbstractMatrix{T};
+                get_details::Int = 1,   # 0: basic statistics (default)
+        # 1: detailed statistics:  basic stats, plus input options, time taken by
+        #    various phases, statistics from spqr and spqr_rank subfunctions called,
+        #    and other details.  Normally of interest only to the developers.
+        # 2: basic statistics and a few additional statistics.  Used internally
+        #    by some routines to pass needed information.
+                repeatable::Bool = true, # by default, results are repeatable
+                tol::Real = -1.0,        # a negative number means the default
+        # tolerance should be computed
+                tol_norm_type::Int = 2, # 1: use norm(A, 1) to compute the default tol
+                                        # 2: use normest(A, 0.01)
+                nsvals_large::Int = 1,  # default number of large singular values to estimate
+                min_block::Int = 3,     #
+                max_block::Int = 10,    #
+                min_iters::Int = 3,     #
+                max_iters::Int = 100,   #
+                nblock_increment = 5,   #
+                convergence_factor::Real = 0.1  #
+        ) where T<:Number
+
     start_tic = time_ns()
-    stats = Statistics(opts)
+    stats = Statistics(real(T))
     stats.time_initialize = time_ns() - start_tic
 
     m, n = size(R)
@@ -104,16 +124,10 @@ function spqr_ssi(R::AbstractMatrix{T}, opts::Options{T}) where T
         error("R must be square")
     end
 
-    tol = opts.ssi_tol                                        # default opts.tol
-    min_block = opts.ssi_min_block                            # default 3
-    max_block = opts.ssi_max_block                            # default 10
-    min_iters = opts.ssi_min_iters                            # default 3
-    max_iters = opts.ssi_max_iters                            # default 100
-    nblock_increment = opts.ssi_nblock_increment              # default 5
-    convergence_factor = opts.ssi_convergence_factor          # default 0.1
-    nsvals_large = opts.nsvals_large                          # default 1
-    get_details = opts.get_details                            # default false
-    repeatable = opts.repeatable                              # default false
+    normest_A = tol >= 0 ? 1.0 : tol_norm_type == 1 ? norm(R, 1) : normest(R, 0.01)
+    stats.normest_A = normest_A
+    tol = real(T)(tol)
+    tol = tol >= 0 ? tol : normest_A * eps(real(T)) * n
 
     private_stream = repeatable ? MersenneTwister(1) : Random.GLOBAL_RNG
 
@@ -145,9 +159,6 @@ function spqr_ssi(R::AbstractMatrix{T}, opts::Options{T}) where T
     # set the order of the remaining stats fields
     stats.tol = tol
     stats.tol_alt = -1.0   # removed later if remains -1
-    if get_details == 1
-        normest_A = stats.normest_A
-    end
     if get_details == 2
         stats.ssi_max_block_used = -1
         stats.ssi_min_block_used = -1
@@ -160,7 +171,7 @@ function spqr_ssi(R::AbstractMatrix{T}, opts::Options{T}) where T
         stats.final_blocksize = -1
         stats.ssi_max_block_used = -1
         stats.ssi_min_block_used = -1
-        stats.opts_used = opts
+        # stats.opts_used = opts
         stats.time = 0
         stats.time_iters = 0
         stats.time_est_error_bounds = 0
@@ -169,7 +180,7 @@ function spqr_ssi(R::AbstractMatrix{T}, opts::Options{T}) where T
 
     stats.rank = 0
     stats.tol = tol
-    if (get_details == 1 || get_details == 2)
+    if get_details == 1 || get_details == 2
         stats.ssi_max_block_used = max_block
         stats.ssi_min_block_used = nblock
     end
@@ -189,8 +200,10 @@ function spqr_ssi(R::AbstractMatrix{T}, opts::Options{T}) where T
     D2 = T[]
     X2 = T[]
     est_error_bound = T(0)
-
-    for iters = 1:max_iters
+    
+    iters = 0
+    while iters < max_iters
+        iters += 1
 
         U0= U
         V1 = R \ U
@@ -221,7 +234,7 @@ function spqr_ssi(R::AbstractMatrix{T}, opts::Options{T}) where T
         end
 
         if get_details == 1
-            time_svd = itime_ns()
+            time_svd = time_ns()
         end
 
         U, D2, X2 = svd(U1)
@@ -340,12 +353,12 @@ function spqr_ssi(R::AbstractMatrix{T}, opts::Options{T}) where T
                 U = [U Y]      ##ok
             end
         end
-        stats.iters = iters               # number of iterations taken in ssi
     end
 
     if get_details == 1
         stats.final_blocksize = nblock    # final block size
         stats.time_iters = time_ns() - start_iters_tic
+        stats.iters = iters               # number of iterations taken in ssi
     end
 
     #-------------------------------------------------------------------------------
@@ -402,7 +415,7 @@ function spqr_ssi(R::AbstractMatrix{T}, opts::Options{T}) where T
     U = U[:,nkeep:-1:1]
 
     if get_details == 1
-        t = itime_ns()
+        t = time_ns()
     end
 
     if nsvals_large > 0
@@ -462,7 +475,7 @@ function spqr_ssi(R::AbstractMatrix{T}, opts::Options{T}) where T
     if get_details == 1
         stats.norm_R_times_N = norm_R_times_N
         stats.norm_R_transpose_times_NT = norm_R_transpose_times_NT
-        stats.time_svd += itime_ns() - t
+        stats.time_svd += time_ns() - t
     end
 
     # Note: norm_R_times_N is an upper bound on sing. val. rank1+1 of R
