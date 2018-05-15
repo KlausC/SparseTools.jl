@@ -1,11 +1,13 @@
 using Random
 using LinearAlgebra
 
+export spqr_ssi
+
 #==
 SPQR_SSI block power method or subspace iteration applied to inv(R)
  to estimate rank, smallest singular values, and left/right singular vectors.
 
- [U,S,V,stats] = spqr_ssi(R,opts)
+ [U, S, V, stats] = spqr_ssi(R, opts...)
 
  Uses the block power method or subspace iteration applied to the inverse of
  the triangular matrix R (implicitly) to estimate the numerical rank, smallest

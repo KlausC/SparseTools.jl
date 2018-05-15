@@ -1,6 +1,8 @@
 using Random
 using LinearAlgebra
 
+export spqr_ssp, normest
+
 #==
 SPQR_SSP block power method or subspace iteration applied to A or A*N
 
@@ -97,7 +99,7 @@ start block power method to estimate the largest singular values and the
     corresponding right singular vectors (in the n-by-k matrix V) and left
     singular vectors (in the m-by-k matrix U) of the m-by-n matrix A
 """
-function spqr_ssp(A::AbstractMatrix{T}, N::Union{UniformScaling{T}, AbstractArray{T}};
+function spqr_ssp(A::AbstractMatrix{T}, N::Union{UniformScaling{T}, AbstractArray{T}}=one(T)I;
             k::Int = 1,   # the # of singular values to compute.
             min_iters::Int = 4, # min # of iterations before checking convergence.
             max_iters::Int = 10, # max # of iterations before stopping the iterations.
@@ -276,4 +278,17 @@ function spqr_ssp(A::AbstractMatrix{T}, N::Union{UniformScaling{T}, AbstractArra
     end
 
     U, S, V, stats
+end
+
+
+"""
+    tersnormest(A, [tol]; [max_iters=...])
+
+Estimate 2-norm of matrix A, power-iterating (A*A') until given tolerance.
+"""
+
+function normest(A::AbstractMatrix{T}, tol::Real = 1e-6; max_iters::Int = 100) where T
+    U, S, V, stats = spqr_ssp(A, one(T)*I, k = 1, convergence_factor = abs(tol),
+                              min_iters = 2, max_iters = max_iters, get_details = 0)
+    S[1]
 end
