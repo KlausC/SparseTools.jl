@@ -60,7 +60,7 @@ Options{T}() where T = Options{T}(0, true,
 function Options(A::AbstractMatrix{T}, k::Int=1) where T
     opts = Options{real(T)}()
     opts.k = k
-    opts.normest_A = opts.tol_norm_type == 2 ? norm(A, 1) : normest(A, 0.1) ## TODO
+    opts.normest_A = opts.tol_norm_type == 2 ? norm(A, 1) : normest(A, 0.01) ## TODO
     opts.tol = opts.normest_A * max(size(A)...) * eps(real(T))
     opts.ssi_tol = opts.tol
     opts
@@ -97,7 +97,7 @@ function Statistics(::Type{T}; tol=0.0, normest_A=1.0) where T
     Statistics{T}(-1, -1,
                           tol, normest_A, -1.0,
                           T[], T[], T[], T[], T[],
-                          0, Options{real(T)}(),
+                          0, Options{T}(),
                           0, 0, 0, 0, 0, 0.0, 0.0, 0, -1, -1, -1)
 end
 
@@ -108,6 +108,4 @@ function Statistics(opts::Options{T}) where T
                           0, opts,
                           0, 0, 0, 0, 0, 0.0, 0.0, 0)
 end
-
-
 

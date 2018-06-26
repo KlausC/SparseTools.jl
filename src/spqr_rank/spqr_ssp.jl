@@ -282,11 +282,10 @@ end
 
 
 """
-    tersnormest(A, [tol]; [max_iters=...])
+    normest(A, [tol]; [max_iters=...])
 
 Estimate 2-norm of matrix A, power-iterating (A*A') until given tolerance.
 """
-
 function normest(A::AbstractMatrix{T}, tol::Real = 1e-6; max_iters::Int = 100) where T
     U, S, V, stats = spqr_ssp(A, one(T)*I, k = 1, convergence_factor = abs(tol),
                               min_iters = 2, max_iters = max_iters, get_details = 0)

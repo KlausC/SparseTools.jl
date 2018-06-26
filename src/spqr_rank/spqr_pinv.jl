@@ -4,27 +4,27 @@ export spqr_pinv
 """
     SPQR_PINV approx pseudoinverse solution to min(norm(B-A*X))
 
-usage: [x,stats,N,NT] = spqr_pinv(A,B,opts)
-This function returns an approximate psuedoinverse solution to
+usage: x,stats,N,NT = spqr_pinv(A, B, opts)
+This function returns an approximate pseudoinverse solution to
                  min || B - A x ||                     (1)
-for rank deficient matrices A.  The psuedoinverse solution is the minimum
+for rank deficient matrices A.  The pseudoinverse solution is the minimum
 norm solution to the least squares problem (1).  Also, optionally, the
 routine returns statistics including the numerical rank of the matrix A for
 tolerance tol (i.e. the number of singular values > tol) and other statistics
 (see below), as well as, if requested, an orthonormal basis for the numerical
 null space to A and an orthonormal basis for the null space of A transpose.
-The psuedoinverse solution is approximate since the algorithm allows small
+The pseudoinverse solution is approximate since the algorithm allows small
 perturbations in A (columns of A may be changed by no more than a user
-defined value in opts.tol).
+defined value in tol).
 
 Input:  A -- an m by n matrix
         B -- an m by p right hand side matrix
         opts (optional) -- see below
-Output: x -- this n by p matrix contains psuedoinverse solutions to (1).
+Output: x -- this n by p matrix contains pseudoinverse solutions to (1).
              If B is empty then x will also be empty.
         stats (optional) -- statistics including:
 """
-function [x,stats,N,NT] = spqr_pinv(A, varargin)
+function spqr_pinv(A::AbstractMatrix{T}, B::AbstractMatrix{T}; tol::T, nargout=4, get_details::Int=0) where T
 #=
  Examples:
     A = sparse(gallery('kahan',100))
@@ -54,11 +54,11 @@ Algorithm:  a basic solution is calculated using spqr_basic. Following
 #-------------------------------------------------------------------------------
 # set tolerance and number of singular values to estimate
 #-------------------------------------------------------------------------------
+start_tic = time_ns()
+stats = SpqrStats()
 
-[B,opts,stats,start_tic,ok] = spqr_rank_get_inputs(A, 1, varargin {:})
-
-if ~ok || nargout > 4
-    error('usage: [x,stats,N,NT] = spqr_pinv(A,B,opts)')
+if nargout > 4
+    error("usage: x, stats, N, NT = spqr_pinv(A, B, opts...)")
 end
 
 # get the options
@@ -96,10 +96,10 @@ end
 if nargout == 4
     # save basis for null space of A', if there are four output
     #   parameters.  This will require more memory.
-    [x,stats_spqr_basic,NT] = spqr_basic(A, B, opts2)
+    x, stats_spqr_basic, NT = spqr_basic(A, B, nargout=3, tol=tol, get_details=2)
 else
     # do not save the basis for the null space of A'. Saves memory.
-    [x,stats_spqr_basic] = spqr_basic(A, B, opts2)
+    x, stats_spqr_basic = spqr_basic(A, B, nargout=2, tol=tol, get_details=2)
 end
 
 stats.rank = stats_spqr_basic.rank
@@ -116,8 +116,7 @@ end
 if stats_spqr_basic.flag == 4
     # overflow in spqr_ssi, called by spqr_basic.
     # spqr_basic has already issued a warning regarding overflow
-    [stats x N NT] = spqr_failure(4, stats, get_details, start_tic)
-    return
+    return spqr_failure(4, stats, get_details, start_tic)
 end
 
 #-------------------------------------------------------------------------------
@@ -131,7 +130,7 @@ opts.ssi_min_block = max(2, stats_spqr_basic.rank_spqr - stats.rank + 1)
 
 opts.ssi_min_block = min(opts.ssi_min_block, stats_spqr_basic.stats_ssi.ssi_max_block_used)
 
-[N,stats_spqr_null] = spqr_null(A, opts2)
+N, stats_spqr_null = spqr_null(A, opts2)
 
 if get_details == 1
     stats.stats_spqr_basic = stats_spqr_basic
@@ -151,7 +150,7 @@ if stats_spqr_basic.flag == 0 && stats_spqr_null.flag == 0  && stats_spqr_basic.
     # Rank from spqr_basic and spqr_null differ.  This is so rare that we know
     # of no matrices that trigger this condition.  This block of code is thus
     # untested.
-    error('spqr_rank:inconsistent', 'inconsistent rank estimates') ; # untested
+    error("spqr_rank:inconsistent", "inconsistent rank estimates") ; # untested
     # an alternative, which would cause a return in the code below.
     #   stats.flag = 5
 end
@@ -159,15 +158,14 @@ end
 if stats.flag >= 4
     # early return: overflow in inverse power method in ssi,
     # or inconsistent rank estimates by spqr_basic and spqr_null.
-    [stats x N NT] = spqr_failure(stats.flag, stats, get_details, start_tic)
-    return
+    return spqr_failure(stats.flag, stats, get_details, start_tic)
 end
 
 #-------------------------------------------------------------------------------
 # calculate the psuedoinverse solution
 #-------------------------------------------------------------------------------
 
-x = x - spqr_null_mult(N, spqr_null_mult(N,x,0), 1)
+x = x - spqr_null_mult(N, spqr_null_mult(N, x, 0), 1)
 
 #-------------------------------------------------------------------------------
 # select from two estimates of numerical rank and two sets of bounds
@@ -193,9 +191,7 @@ else
         st = stats_spqr_null
 end
 stats.rank = st.rank
-if isfield(st,'tol_alt')
-    stats.tol_alt = st.tol_alt
-end
+stats.tol_alt = st.tol_alt
 stats.sval_numbers_for_bounds = st.sval_numbers_for_bounds
 stats.est_sval_upper_bounds  = st.est_sval_upper_bounds
 stats.est_sval_lower_bounds  = st.est_sval_lower_bounds
@@ -225,17 +221,9 @@ if get_details == 1
     stats.time_basis = stats_spqr_basic.time_basis + stats_spqr_null.time_basis
 end
 
-if stats.tol_alt == -1
-    stats = rmfield(stats, 'tol_alt')
-end
-
-if get_details == 1
-    # order the fields of stats in a convenient order (the fields when
-    #    get_details is 0 or 2 are already in a good order)
-    stats = spqr_rank_order_fields(stats)
-end
-
 if get_details == 1
     stats.time = time_ns() - start_tic
 end
 
+return x, stats, N, NT
+end
