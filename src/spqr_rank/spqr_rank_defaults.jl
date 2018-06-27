@@ -42,43 +42,16 @@ function get_tol_norm(opts::Pairs, A::AbstractMatrix{T}) where T
             rtol = max(size(A)...) * eps(real(T))
         end
         if rtol > 0.0 
-            normest_A = tol_norm_type == 1 ? opnorm(A, 1) : normest(A, 0.01) 
+            normest_A = tol_norm_type != 2 ? opnorm(A, tol_norm_type) : normest(A, 0.01) 
             xtol = rtol * normest_A
         end
         tol = max(atol, xtol)
-        opts = merge_opts(opts, tol=tol)
+        opts = merge_opts(opts, tol=tol, rtol=rtol)
     end
     opts, tol, normest_A
 end
 
-function zip_named(vs, vv)
-    Pairs(NamedTuple{Tuple(vs)}(Tuple(vv)), Tuple(vs))
-end
-
-function merge_opts(x::Pairs; kw...)
-    merge_opts(x, kw)
-end
-
-function merge_opts(x::Pairs, kw::Pairs)
-    vs = Symbol[]
-    vv = Any[]
-    vx = Symbol[]
-    for (s, v) in x
-        if s in keys(kw)
-            push!(vx, s)
-            if kw[s] != nothing
-                push!(vs, s)
-                push!(vv, kw[s])
-            end
-        else
-            push!(vs, s);
-            push!(vv, v);
-        end
-    end
-    for (s, v) in kw
-        if s ∉ vx
-            push!(vs, s); push!(vv, v)
-        end
-    end
-    zip_named(vs, vv)
-end
+zip_named(vs, vv) = pairs(NamedTuple{Tuple(vs)}(Tuple(vv)))
+kwlist(;kw...) = kw
+merge_opts(x::Pairs; kw...) = kwlist(;x..., kw...)
+merge_opts(x::Pairs, kw) = kwlist(;x..., kw...)

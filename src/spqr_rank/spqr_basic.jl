@@ -30,7 +30,7 @@ Output:
   NT -- orthonormal basis for numerical null space of A'.
 """
 function spqr_basic(A::AbstractMatrix{T}, B::AbstractMatrix{T};
-              tol::T, nsvals_small::Int=1 ,nsvals_large::Int=1, get_details::Int=0) where T
+                    nargout=3, opts) where T <: Number
 #=
 Example:
 
@@ -67,22 +67,22 @@ Algorithm:  First spqr is used to construct a QR factorization of the
 #-------------------------------------------------------------------------------
 # get opts: tolerance and number of singular values to estimate
 #-------------------------------------------------------------------------------
-nargout = 3
-start_tic = time_ns()
-stats = Statistics(real(T)) 
-# get the options
 
+start_tic = time_ns()
+
+# get the options
+opts, get_details, nsval_small, nsvals_large = get_opts(opts, :get_details, :nsvals_small, :nsvals_large)
+opts, tol, normest_A = get_tol_norm(opts, A)
+stats = Statistics(real(T)) 
 # set the order of the stats fields
 #     stats.flag, stats.rank, stats.rank_spqr, stats.rank_spqr (if get_details
 #     >= 1), stats.tol, stats.tol_alt, stats.normest_A (if calculated),
 #     stats.est_sval_upper_bounds, stats.est_sval_lower_bounds, and
 #     stats.sval_numbers_for_bounds already initialized in spqr_rank_get_inputs
 if nargout == 3
-   stats.est_norm_A_transpose_times_NT = -1
+   stats.est_norm_A_transpose_times_NT = -1.0
 end
-if get_details == 2
-    stats.stats_ssi = -1
-end
+
 # order for the additional stats fields for case where get_details is 1 will be
 #     set using spqr_rank_order_fields, called from spqr_rank_assign_stats
 
@@ -97,11 +97,7 @@ m, n = size(A)
 #-------------------------------------------------------------------------------
 
 # compute Q*R = A(:,p) and C=Q'*B.  Keep Q if NT is requested; else discard.
-if nargout <= 2
-    Q, R, C, p, info_spqr1 = spqr_wrapper(A, B, tol, "discard Q", get_details)
-else
-    Q, R, C, p, info_spqr1 = spqr_wrapper(A, B, tol, "keep Q", get_details)
-end
+Q, R, C, p, prow, info_spqr1 = spqr_wrapper(A, B, tol, get_details)
 
 # the next line is equivalent to: rank_spqr = size(R,1)
 rank_spqr = info_spqr1.rank_A_estimate
@@ -162,10 +158,10 @@ numerical_rank = stats_ssi.rank
 
 # limit nsvals_small and nsvals_large due to number of singular values
 #     available and calculated by spqr_ssi
-nsvals_small = min([nsvals_small, min(m,n) - numerical_rank])
+nsvals_small = min(nsvals_small, min(m,n) - numerical_rank)
 
 nsvals_large = min(nsvals_large, rank_spqr)
-nsvals_large = min([nsvals_large, numerical_rank, numerical_rank - rank_spqr + stats_ssi.ssi_max_block_used])
+nsvals_large = min(nsvals_large, numerical_rank, numerical_rank - rank_spqr + stats_ssi.ssi_max_block_used)
 
 # return nsvals_large + nsvals_small of the estimates
 est_sval_lower_bounds = est_sval_lower_boundsr[1:nsvals_large+nsvals_small]
@@ -184,7 +180,7 @@ if get_details == 1
     t = time_ns()
 end
 
-s = svd(Matrix(U'*R))[2]
+s = svd(Matrix(U'*R)).S
 
 if get_details == 1
     stats.time_svd += time_ns() - t

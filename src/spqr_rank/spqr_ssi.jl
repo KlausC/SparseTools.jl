@@ -44,9 +44,9 @@ SPQR_SSI block power method or subspace iteration applied to inv(R)
     s -- diag(S), with S as above.
 
  Example:
-    R = sparse(matrixdepot('kahan', 100))
+    R = sparse(matrixdepot("kahan", 100))
     U,S,V = spqr_ssi(R)
-    norm_of_residual = norm( U' * R - S * V' ) # should be near zero
+    norm_of_residual = norm( U' * R - diagm(S) * V' ) # should be near zero
      or
     U,S,V,stats = spqr_ssi(R, nothing, stats)
     N = V(:,2:end)   # orthonormal basis for numerical null space of R
@@ -96,40 +96,39 @@ start block power method to estimate the smallest singular
      r by nblock matrix V) and left singular vectors (in the r by
      nblock matrix U) of the n by n matrix R
 """
-function spqr_ssi(R::AbstractMatrix{T};
-                get_details::Int = 1,   # 0: basic statistics (default)
+function spqr_ssi(R::AbstractMatrix{T}; nargout=4, opts...) where T<:Number
+        ##      get_details::Int = 1,   # 0: basic statistics (default)
         # 1: detailed statistics:  basic stats, plus input options, time taken by
         #    various phases, statistics from spqr and spqr_rank subfunctions called,
         #    and other details.  Normally of interest only to the developers.
         # 2: basic statistics and a few additional statistics.  Used internally
         #    by some routines to pass needed information.
-                repeatable::Bool = true, # by default, results are repeatable
-                tol::Real = -1.0,        # a negative number means the default
+        ##      repeatable::Bool = true, # by default, results are repeatable
+        ##      tol::Real = -1.0,        # a negative number means the default
         # tolerance should be computed
-                tol_norm_type::Int = 2, # 1: use norm(A, 1) to compute the default tol
+        ##      tol_norm_type::Int = 2, # 1: use norm(A, 1) to compute the default tol
                                         # 2: use normest(A, 0.01)
-                nsvals_large::Int = 1,  # default number of large singular values to estimate
-                min_block::Int = 3,     #
-                max_block::Int = 10,    #
-                min_iters::Int = 3,     #
-                max_iters::Int = 100,   #
-                nblock_increment = 5,   #
-                convergence_factor::Real = 0.1  #
-        ) where T<:Number
+        ##      nsvals_large::Int = 1,  # default number of large singular values to estimate
+        ##      min_block::Int = 3,     #
+        ##      max_block::Int = 10,    #
+        ##      min_iters::Int = 3,     #
+        ##      max_iters::Int = 100,   #
+        ##      nblock_increment = 5,   #
+        ##      convergence_factor::Real = 0.1  #
 
     start_tic = time_ns()
-    stats = Statistics(real(T))
-    stats.time_initialize = time_ns() - start_tic
+    opts, get_details, repeatable, min_iters, max_iters, convergence_factor,
+        nsvals_large, min_block, max_block, nblock_increment =
+    get_opts(opts, :get_details, :repeatable, :ssi_min_iters, :ssi_max_iters,
+                 :ssi_convergence_factor, :nsvals_large,
+                 :ssi_min_block, :ssi_max_block, :ssi_nblock_increment) 
+
+    opts, tol, normest_R = get_tol_norm(opts, R)
 
     m, n = size(R)
     if m != n
         error("R must be square")
     end
-
-    normest_A = tol >= 0 ? 1.0 : tol_norm_type == 1 ? norm(R, 1) : normest(R, 0.01)
-    stats.normest_A = normest_A
-    tol = real(T)(tol)
-    tol = tol >= 0 ? tol : normest_A * eps(real(T)) * n
 
     private_stream = repeatable ? MersenneTwister(1) : Random.GLOBAL_RNG
 
@@ -152,6 +151,11 @@ function spqr_ssi(R::AbstractMatrix{T};
 
     # start with nblock = min_block
     nblock = min_block
+    opts = merge_opts(opts, nsvals_large=nsvals_large, ssi_max_block=max_block, ssi_min_block=min_block)
+    stats = Statistics(real(T))
+    stats.normest_A = normest_R
+    stats.opts_used = opts.data
+    stats.time_initialize = time_ns() - start_tic
 
     #-------------------------------------------------------------------------------
     # initializations
@@ -161,6 +165,7 @@ function spqr_ssi(R::AbstractMatrix{T};
     # set the order of the remaining stats fields
     stats.tol = tol
     stats.tol_alt = -1.0   # removed later if remains -1
+
     if get_details == 2
         stats.ssi_max_block_used = -1
         stats.ssi_min_block_used = -1
@@ -173,7 +178,6 @@ function spqr_ssi(R::AbstractMatrix{T};
         stats.final_blocksize = -1
         stats.ssi_max_block_used = -1
         stats.ssi_min_block_used = -1
-        # stats.opts_used = opts
         stats.time = 0
         stats.time_iters = 0
         stats.time_est_error_bounds = 0
@@ -181,7 +185,6 @@ function spqr_ssi(R::AbstractMatrix{T};
     end
 
     stats.rank = 0
-    stats.tol = tol
     if get_details == 1 || get_details == 2
         stats.ssi_max_block_used = max_block
         stats.ssi_min_block_used = nblock
@@ -192,7 +195,7 @@ function spqr_ssi(R::AbstractMatrix{T};
     end
 
     U = randn(private_stream, n, nblock)
-    U = qr(U)[1]    # random orthogonal matrix
+    U = qr(U).Q * Matrix{T}(I, n, nblock) # random orthogonal matrix with nblock cols
     # est_error_bound_calculated = 0      # set to 1 later if bound calculated
     flag_overflow = 0                     # set to 1 later if overflow occurs
 
@@ -226,7 +229,6 @@ function spqr_ssi(R::AbstractMatrix{T};
 
         U1 = R' \ V
         # Note: with the inverse power method overflow is a potential concern
-        #     in extreme cases (SJid = 137 or UFid = 1239 is close)
         if !all(isfinite.(U1))
             # *************>>>>> early exit from for loop
             # We know of no matrix that triggers this condition, so the next
@@ -351,8 +353,8 @@ function spqr_ssi(R::AbstractMatrix{T};
             if nblock > nblock_prev
                 Y = randn(private_stream, n, nblock-nblock_prev)
                 Y = Y - U * ( U' * Y )
-                Y = qr(Y)[1]                                            ##ok
-                U = [U Y]      ##ok
+                Y = qr(Y).Q * Matrix{T}(I, n, nblock-nblock_prev)
+                U = [U Y]
             end
         end
     end
@@ -370,7 +372,7 @@ function spqr_ssi(R::AbstractMatrix{T};
     if flag_overflow == 1
         warning("spqr_rank:overflow", "overflow in inverse power method")
         stats, U, S, V = spqr_failure(4, stats, get_details, start_tic)
-        return U, S, V, stats
+        return nargout == 1 ? S : nargout == 2 ? (S, stats) : (U, S, V, stats)
     end
 
     #-------------------------------------------------------------------------------
@@ -454,7 +456,7 @@ function spqr_ssi(R::AbstractMatrix{T};
     end
 
     nr1 = numerical_rank - nsvals_large
-    ## stats.sval_numbers_for_bounds = nr1 + 1 : nr1 + length(est_error_bounds)
+    stats.sval_numbers_for_bounds = nr1 + 1 : nr1 + length(est_error_bounds)
 
     #-------------------------------------------------------------------------------
     # compute norm R*N and R'*NT
@@ -508,8 +510,8 @@ function spqr_ssi(R::AbstractMatrix{T};
         # tolerance.  This is a rare case.
         stats.flag = 1
         tol_alt = ( S[nsvals_large] - est_error_bounds[nsvals_large] )
-        tol_alt = tol_alt - eps(tol_alt) # so that tol_alt satisfies the >
-                                         # portion of the inequality below
+        tol_alt -= eps(tol_alt)         # so that tol_alt satisfies the >
+                                        # portion of the inequality below
         # tol_alt = max_norm_RN_RTNT
         # Note: satisfactory values of tol_alt are in the range
         #    S[nsvals_large] - est_error_bounds[nsvals_large] > tol_alt
@@ -540,5 +542,5 @@ function spqr_ssi(R::AbstractMatrix{T};
         stats.time = time_ns() - start_tic
     end
 
-    U, S, V, stats
+    nargout == 1 ? S : nargout == 2 ? (S, stats) : (U, S, V, stats)
 end
