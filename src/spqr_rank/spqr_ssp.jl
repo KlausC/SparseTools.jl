@@ -100,16 +100,18 @@ start block power method to estimate the largest singular values and the
     singular vectors (in the m-by-k matrix U) of the m-by-n matrix A
 """
 function spqr_ssp(A::AbstractMatrix{T}, N::Union{UniformScaling{T}, AbstractArray{T}}=one(T)I;
-            k::Int = 1,   # the # of singular values to compute.
-            min_iters::Int = 4, # min # of iterations before checking convergence.
-            max_iters::Int = 10, # max # of iterations before stopping the iterations.
+                  nargout=4, opts...) where T<:Number
+
+##           k::Int = 1,   # the # of singular values to compute.
+##           min_iters::Int = 4, # min # of iterations before checking convergence.
+##           max_iters::Int = 10, # max # of iterations before stopping the iterations.
 #       The default value = 10 appears, with the default value of opts.tol,
 #       to provide sufficient accuracy to correctly determine the numerical
 #       rank when spqr_ssi is called by spqr_basic, spqr_null, spqr_pinv or
 #       spqr_cod in almost all cases, assuming that stats.flag is 0. For
 #       values of opts.tol larger than the default value, a larger value of
 #       opts.ssp_max_iters, for example 100, may be useful.
-            convergence_factor::Real = 0.1, # continue power method iterations until an
+##            convergence_factor::Real = 0.1, # continue power method iterations until an
 #       estimated bound on the relative error in the approximation
 #       S[k] to singular value number k of A is <= convergence_factor.
 #       The default value = 0.1 appears, with the default value of
@@ -118,24 +120,24 @@ function spqr_ssp(A::AbstractMatrix{T}, N::Union{UniformScaling{T}, AbstractArra
 #       in almost all cases, assuming that stats.flag is 0.  For values
 #       of opts.tol larger than the default value, a smaller value of
 #       opts.ssp_convergence_factor, for example 0.01, may be useful.      
-            get_details::Int = 1, # determine what statistics to return.
+##            get_details::Int = 1, # determine what statistics to return.
 #       0: basic statistics
 #       1: extensive statistics.
 #       2: basic statistics and a few addional statistics.
 #       See 'help spqr_rank_stats' for details.
-            repeatable::Bool = true # controls the random stream.
+##            repeatable::Bool = true # controls the random stream.
 #       false: use the current random number stream.  The state of the stream will
 #           be different when the method returns.  Repeated calls may generate
 #           different results.  Faster for small matrices, however.
 #       true: use a repeatable internal random number stream.  The current stream
 #           will not be affected.  Repeated calls generate the same results.
-    ) where T<:Number
 
     start_tic = time_ns()
+    opts, get_details, repeatable, k, min_iters, max_iters, convergence_factor =
+    get_opts(opts, :get_details, :repeatable, :k, :ssp_min_iters, :ssp_max_iters, :ssp_convergence_factor) 
     stats = Statistics(real(T))
     stats.time_initialize = time_ns() - start_tic
 
-    k = max(k, 0)
     private_stream = repeatable ? MersenneTwister(1) : Random.GLOBAL_RNG
     #-------------------------------------------------------------------------------
     # initializations
@@ -143,11 +145,14 @@ function spqr_ssp(A::AbstractMatrix{T}, N::Union{UniformScaling{T}, AbstractArra
 
     m, n = size(A)
     p = N isa UniformScaling ? n : size(N, 2)
+    k = max(k, 0)
     k = min(k, m, p)     # number of singular values to compute
-
+    max_iters = max(1, max_iters)
+    
     stats.flag = 1
     stats.est_error_bounds = zeros(T, max(k, 1))
     #stats.sval_numbers_for_bounds = 1:k
+    stats.opts_used = opts.data
 
     if k <= 0
         # quick return.  This is not an error condition.
@@ -157,17 +162,17 @@ function spqr_ssp(A::AbstractMatrix{T}, N::Union{UniformScaling{T}, AbstractArra
         U = zeros(m, 0)
         S = zeros(0)
         V = zeros(n, 0)
-        return U, S, V, stats
+        return nargout == 1 ? S : nargout <= 2 ? (S, stats) : (U, S, V, stats)
     end
-
+    
     U = randn(private_stream, m, k)
-    U = qr(U)[1]                                                   ##ok
+    U = qr(U).Q * Matrix{T}(I, m, k)  # iteration start - U has k orthonormal columns
 
     #-------------------------------------------------------------------------------
     # block power iterations
     #-------------------------------------------------------------------------------
 
-    if get_details == 1
+    if get_details >= 1
         t = time_ns()
     end
 
@@ -181,21 +186,21 @@ function spqr_ssp(A::AbstractMatrix{T}, N::Union{UniformScaling{T}, AbstractArra
 
         V1 = N' * (A' * U)
 
-        if get_details == 1
+        if get_details >= 1
             time_svd = time_ns()
         end
-        V = svd(V1)[1]                                     ##ok
-        if get_details == 1
+        V = svd(V1).U
+        if get_details >= 1
             stats.time_svd += time_ns() - time_svd
         end
 
         U1 = A * (N * V)
 
-        if get_details == 1
+        if get_details >= 1
             time_svd = time_ns()
         end
         U, D2, X2 = svd(U1)
-        if get_details == 1
+        if get_details >= 1
             stats.time_svd += time_ns() - time_svd
         end
 
@@ -225,7 +230,7 @@ function spqr_ssp(A::AbstractMatrix{T}, N::Union{UniformScaling{T}, AbstractArra
         end
     end
 
-    if get_details == 1
+    if get_details >= 1
         stats.iters = iters
         stats.time_iters = time_ns() - t
     end
@@ -242,7 +247,7 @@ function spqr_ssp(A::AbstractMatrix{T}, N::Union{UniformScaling{T}, AbstractArra
     # estimate error bounds for the 1st through (k-1)st singular values
     #-------------------------------------------------------------------------------
 
-    if get_details == 1
+    if get_details >= 1
         t = time_ns()
     end
 
@@ -272,22 +277,24 @@ function spqr_ssp(A::AbstractMatrix{T}, N::Union{UniformScaling{T}, AbstractArra
     # return results
     #-------------------------------------------------------------------------------
 
-    if get_details == 1
+    if get_details >= 1
         stats.time_est_error_bounds = time_ns() - t
         stats.time = time_ns() - start_tic
     end
 
-    U, S, V, stats
+    nargout  == 1 ? S : nargout <= 2 ? (S, stats) : (U, S, V, stats)
 end
 
 
 """
-    normest(A, [tol]; [max_iters=...])
+    normest(A, [convergence_factor]; [max_iters=...])
 
 Estimate 2-norm of matrix A, power-iterating (A*A') until given tolerance.
 """
 function normest(A::AbstractMatrix{T}, tol::Real = 1e-6; max_iters::Int = 100) where T
-    U, S, V, stats = spqr_ssp(A, one(T)*I, k = 1, convergence_factor = abs(tol),
-                              min_iters = 2, max_iters = max_iters, get_details = 0)
+    min_iters = 2
+    max_iters = max(max_iters, min_iters)
+    S = spqr_ssp(A, one(T)*I, nargout=1, k=1, ssp_convergence_factor=abs(tol),
+                              ssp_min_iters=min_iters, ssp_max_iters=max_iters, get_details=0)
     S[1]
 end
