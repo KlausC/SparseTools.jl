@@ -27,6 +27,7 @@ const SPQR_DEFAULTS = pairs((
 function get_opts(opts::Pairs, symbols::Symbol...)
     res = []
     for sym in symbols
+        @assert sym in keys(SPQR_DEFAULTS)
         push!(res, get(opts, sym) do; getindex(SPQR_DEFAULTS, sym); end)
     end
     pushfirst!(res, merge_opts(opts, zip_named(symbols, res))) 

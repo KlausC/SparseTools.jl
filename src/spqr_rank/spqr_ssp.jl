@@ -99,7 +99,7 @@ start block power method to estimate the largest singular values and the
     corresponding right singular vectors (in the n-by-k matrix V) and left
     singular vectors (in the m-by-k matrix U) of the m-by-n matrix A
 """
-function spqr_ssp(A::AbstractMatrix{T}, N::Union{UniformScaling{T}, AbstractArray{T}}=one(T)I;
+function spqr_ssp(A::AbstractMatrix{T}, N::Union{UniformScaling{T}, AbstractArray{T},NamedTuple}=one(T)I;
                   nargout=4, opts...) where T<:Number
 
 ##           k::Int = 1,   # the # of singular values to compute.
@@ -157,8 +157,8 @@ function spqr_ssp(A::AbstractMatrix{T}, N::Union{UniformScaling{T}, AbstractArra
     if k <= 0
         # quick return.  This is not an error condition.
         stats.flag = 0
-        stats.est_svals = 0
-        stats.sval_numbers_for_bounds = 0
+        stats.est_svals = T[]
+        stats.sval_numbers_for_bounds = 1:0
         U = zeros(m, 0)
         S = zeros(0)
         V = zeros(n, 0)

@@ -46,13 +46,13 @@ SPQR_SSI block power method or subspace iteration applied to inv(R)
  Example:
     R = sparse(matrixdepot("kahan", 100))
     U,S,V = spqr_ssi(R)
-    norm_of_residual = norm( U' * R - diagm(S) * V' ) # should be near zero
+    norm_of_residual = opnorm( U' * R - diagm(S) * V' ) # should be near zero
      or
     U,S,V,stats = spqr_ssi(R, nothing, stats)
     N = V(:,2:end)   # orthonormal basis for numerical null space of R
     NT = U(:,2:end)  # orthonormal basis for numerical null space of R'
-    norm_R_times_N = norm(R*N)
-    norm_R_transpose_times_NT = norm(R'*NT)
+    norm_R_times_N = opnorm(R*N)
+    norm_R_transpose_times_NT = opnorm(R'*NT)
      or
     opts = struct('tol',1.e-5,'nsvals_large',3)
     s,stats = spqr_ssi(R, opts, stats)
@@ -106,7 +106,7 @@ function spqr_ssi(R::AbstractMatrix{T}; nargout=4, opts...) where T<:Number
         ##      repeatable::Bool = true, # by default, results are repeatable
         ##      tol::Real = -1.0,        # a negative number means the default
         # tolerance should be computed
-        ##      tol_norm_type::Int = 2, # 1: use norm(A, 1) to compute the default tol
+        ##      tol_norm_type::Int = 2, # 1: use opnorm(A, 1) to compute the default tol
                                         # 2: use normest(A, 0.01)
         ##      nsvals_large::Int = 1,  # default number of large singular values to estimate
         ##      min_block::Int = 3,     #
@@ -214,6 +214,7 @@ function spqr_ssi(R::AbstractMatrix{T}; nargout=4, opts...) where T<:Number
         V1 = R \ U
         if !all(isfinite.(V1))
             flag_overflow = 1
+            println("break overflow")
             break   # *************>>>>> early exit from for loop
         end
 
@@ -234,6 +235,7 @@ function spqr_ssi(R::AbstractMatrix{T}; nargout=4, opts...) where T<:Number
             # We know of no matrix that triggers this condition, so the next
             # two lines are untested.
             flag_overflow = 1      # untested
+            println("break overflow 2")
             break                   # untested
         end
 
@@ -250,6 +252,7 @@ function spqr_ssi(R::AbstractMatrix{T}; nargout=4, opts...) where T<:Number
         k = findfirst(D2 .< tol^-1)
         if k == nothing && nblock == n
             # success since the numerical rank of R is zero
+            println("break all singular values <= tol")
             break   # *************>>>>> early exit from for loop
         end
 
@@ -329,6 +332,7 @@ function spqr_ssi(R::AbstractMatrix{T}; nargout=4, opts...) where T<:Number
                 # error <= convergence_factor.
                 #
                 # SUCCESS!!!, found singular value or R larger than tol
+                println("found singval > tol")
                 break  # *************>>>>> early exit from for loop
             end
             nsvals_large = nsvals_large_old  # restore original value
@@ -337,6 +341,7 @@ function spqr_ssi(R::AbstractMatrix{T}; nargout=4, opts...) where T<:Number
         if nblock == max_block && iters >= min_iters && k == nothing
             # reached max_block block size without encountering any
             # singular values of R larger than tolerance
+            println("tatreak no sing values > tol found")
             break    # *************>>>>> early exit from for loop
         end
 
@@ -356,6 +361,7 @@ function spqr_ssi(R::AbstractMatrix{T}; nargout=4, opts...) where T<:Number
                 Y = qr(Y).Q * Matrix{T}(I, n, nblock-nblock_prev)
                 U = [U Y]
             end
+            println("blocksize $nblock_prev => $nblock")
         end
     end
 
@@ -393,14 +399,12 @@ function spqr_ssi(R::AbstractMatrix{T}; nargout=4, opts...) where T<:Number
             # success since numerical rank is 0
         else
             # in this case rank not successfully determined
-            # Note: In this case k is a lower bound on the nullity and
+            # Note: In th/is case k is a lower bound on the nullity and
             #       n - k is an upper bound on the rank
             numerical_rank = n - k  #upper bound on numerical rank
             nsvals_large = 0 # calculated no singular values > tol
         end
     end
-
-    S = T(1) ./ D2[nkeep:-1:1]
 
     stats.rank = numerical_rank
 
@@ -414,7 +418,8 @@ function spqr_ssi(R::AbstractMatrix{T}; nargout=4, opts...) where T<:Number
     #-------------------------------------------------------------------------------
 
     V = V * X2
-    # reverse order of U and V and keep only nkeep singular vectors
+    # reverse order of S, U and V and keep only nkeep singular vectors
+    S = T(1) ./ D2[nkeep:-1:1]
     V = V[:,nkeep:-1:1]
     U = U[:,nkeep:-1:1]
 
@@ -422,22 +427,12 @@ function spqr_ssi(R::AbstractMatrix{T}; nargout=4, opts...) where T<:Number
         t = time_ns()
     end
 
-    if nsvals_large > 0
-        # this recalculates est_error_bounds(nsvals_large)
-        U0 = R * V[:,1:nsvals_large] - U[:,1:nsvals_large] * Diagonal(S[1:nsvals_large])
-        U0 = [U0; R' * U[:,1:nsvals_large] - V[:,1:nsvals_large] * Diagonal(S[1:nsvals_large])]
-        est_error_bounds[1:nsvals_large] .= vec(sqrt.(sum(abs2, U0, dims=1))) / sqrt(2)
-    end
-
-    # this code calculates estimated error bounds for singular values
-    #    nsvals_large+1 to nkeep
-    ibegin = nsvals_large + 1
-    U0 = R * V[:,ibegin:nkeep] - U[:,ibegin:nkeep] * Diagonal(S[ibegin:nkeep])
-    U0 = [U0; R' * U[:,ibegin:nkeep] - V[:,ibegin:nkeep] * Diagonal(S[ibegin:nkeep])]
-    est_error_bounds[ibegin:nkeep] .= vec(sqrt.(sum(abs2, U0, dims=1))) / sqrt(2)
+    # this recalculates est_error_bounds(nsvals_large)
+    U0 = [ R * V - U * Diagonal(S); R' * U - V * Diagonal(S) ]
+    est_error_bounds .= vec(sqrt.(sum(abs2, U0, dims=1) / 2))
     # Note that
     #    [ 0      R ]  [ U ]   -    [ U ] * S = [ R * V - U * S ]
-    #    [ R'     0 ]  [ V ]   -    [ V ]       [      0        ].
+    #    [ R'     0 ]  [ V ]   -    [ V ]       [ R'* U - V * S ].
     # It follows, by Demmel's Applied Numerical Linear Algebra,
     # Theorem 5.5, for i = 2, . . .,  k, some eigenvalue of
     #     B  =  [ 0    R ]
@@ -456,7 +451,7 @@ function spqr_ssi(R::AbstractMatrix{T}; nargout=4, opts...) where T<:Number
     end
 
     nr1 = numerical_rank - nsvals_large
-    stats.sval_numbers_for_bounds = nr1 + 1 : nr1 + length(est_error_bounds)
+    stats.sval_numbers_for_bounds = nr1 + 1 : nr1 + nkeep
 
     #-------------------------------------------------------------------------------
     # compute norm R*N and R'*NT
@@ -471,10 +466,9 @@ function spqr_ssi(R::AbstractMatrix{T}; nargout=4, opts...) where T<:Number
         t = time_ns()
     end
 
-    # svals_R_times_N = svd(R*V[:,nsvals_large+1:end])'
-    norm_R_times_N = norm(R * V[:,nsvals_large+1:end])
+    norm_R_times_N = opnorm(R * V[:,nsvals_large+1:end])
     # svals_R_transpose_times_NT = svd(R'*U[:,nsvals_large+1:end])'
-    norm_R_transpose_times_NT = norm(R' * U[:,nsvals_large+1:end])
+    norm_R_transpose_times_NT = opnorm(R' * U[:,nsvals_large+1:end])
 
     if get_details == 1
         stats.norm_R_times_N = norm_R_times_N
@@ -488,7 +482,7 @@ function spqr_ssi(R::AbstractMatrix{T}; nargout=4, opts...) where T<:Number
     max_norm_RN_RTNT = max(norm_R_times_N, norm_R_transpose_times_NT)
     # choose max here to insure that both null spaces are good
 
-    #-------------------------------------------------------------------------------
+    #-------------------s------------------------------------------------------------
     # determine flag indicating the accuracy of the rank calculation
     #-------------------------------------------------------------------------------
 
@@ -517,7 +511,7 @@ function spqr_ssi(R::AbstractMatrix{T}; nargout=4, opts...) where T<:Number
         #    S[nsvals_large] - est_error_bounds[nsvals_large] > tol_alt
         #    >= max_norm_RN_RTNT
         stats.tol_alt = tol_alt
-    elseif  nsvals_large > 0 && s(nsvals_large) > tol &&
+    elseif  nsvals_large > 0 && S[nsvals_large] > tol &&
             max_norm_RN_RTNT <= tol &&
             S[nsvals_large] - est_error_bounds[nsvals_large] <= max_norm_RN_RTNT
         # in this case, assuming est_error_bounds(nsvals_large) is a true

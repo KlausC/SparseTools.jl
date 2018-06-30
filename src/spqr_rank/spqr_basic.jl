@@ -1,8 +1,11 @@
-"""
-    SPQR_BASIC approximate basic solution to min(norm(B-A*x))
-for a rank deficient matrix A.
 
-[x,stats,NT] = spqr_basic(A,B,opts)
+export spqr_basic
+
+"""
+    `x, stats, NT = spqr_basic(A, B, opts)`
+
+SPQR_BASIC approximate basic solution to min(norm(B-A*x))
+for a rank deficient matrix A.
 
 This function returns an approximate basic solution to
       min || B - A x ||                     (1)
@@ -10,7 +13,7 @@ for rank deficient matrices A.
 
 Optionally returns statistics including the numerical rank of the matrix A
 for tolerance tol (i.e. the number of singular values > tol), and
-an orthnormal basis for the numerical null space of A'.
+an orthonormal basis for the numerical null space of A'.
 
 The solution is approximate since the algorithm allows small perturbations in
 A (columns of A may be changed by no more than opts.tol).
@@ -30,7 +33,7 @@ Output:
   NT -- orthonormal basis for numerical null space of A'.
 """
 function spqr_basic(A::AbstractMatrix{T}, B::AbstractMatrix{T};
-                    nargout=3, opts) where T <: Number
+                    nargout=3, opts...) where T <: Number
 #=
 Example:
 
@@ -71,7 +74,7 @@ Algorithm:  First spqr is used to construct a QR factorization of the
 start_tic = time_ns()
 
 # get the options
-opts, get_details, nsval_small, nsvals_large = get_opts(opts, :get_details, :nsvals_small, :nsvals_large)
+opts, get_details, nsvals_small, nsvals_large = get_opts(opts, :get_details, :nsvals_small, :nsvals_large)
 opts, tol, normest_A = get_tol_norm(opts, A)
 stats = Statistics(real(T)) 
 # set the order of the stats fields
@@ -96,8 +99,8 @@ m, n = size(A)
 # QR factorization of A, and initial estimate of numerical rank, via spqr
 #-------------------------------------------------------------------------------
 
-# compute Q*R = A(:,p) and C=Q'*B.  Keep Q if NT is requested; else discard.
-Q, R, C, p, prow, info_spqr1 = spqr_wrapper(A, B, tol, get_details)
+# compute Q * R = A[prow,pcol] and C = Q' * B.
+Q, R, C, prow, pcol, info_spqr1 = spqr_wrapper(A, B, tol, get_details)
 
 # the next line is equivalent to: rank_spqr = size(R,1)
 rank_spqr = info_spqr1.rank_A_estimate
@@ -115,10 +118,9 @@ end
 # use spqr_ssi to check and adjust numerical rank from spqr
 #-------------------------------------------------------------------------------
 
-R11 = view(R, :, 1:rank_spqr)
+R11 = view(R, :, 1:rank_spqr) # should be square matrix!
 get_details2 = get_details == 0 ? 2 : get_details
-U, S, V, stats_ssi = spqr_ssi(R11, get_details=get_details2, tol=tol,
-                              nsvals_large=nsvals_large)
+U, S, V, stats_ssi = spqr_ssi(R11; opts..., get_details=get_details2)
 
 if get_details == 1 || get_details == 2
     stats.stats_ssi = stats_ssi
@@ -143,16 +145,15 @@ end
 
 # In spqr the leading rank_spqr column of A*P are unmodified. Therefore
 # by the interleave theorem for singular values the singular values of
-# R11 = R(:,1:rank_spqr) are lower bounds for the singular
+# R11 = R[:,1:rank_spqr] are lower bounds for the singular
 # values of A.  In spqr_ssi estimates for the errors in calculating the
 # singular values of R are in stats_ssi.est_error_bounds.  Therefore,
 # for i = 1:k, where S is k by k, estimated lower bounds on singular
 # values number (rank_spqr - k + i) of A are in est_sval_lower_bounds:
 #
-est_sval_lower_bounds = max.(S - stats_ssi.est_error_bounds, 0)
-
 # lower bounds on the remaining singular values of A are zero
-est_sval_lower_boundsr[length(S)+1:length(S)+min(m,n)-rank_spqr] = 0
+est_sval_lower_bounds = fill(real(T)(0), length(S)+min(m,n)-rank_spqr)
+copyto!(est_sval_lower_bounds, max.(S - stats_ssi.est_error_bounds, 0))
 
 numerical_rank = stats_ssi.rank
 
@@ -160,11 +161,11 @@ numerical_rank = stats_ssi.rank
 #     available and calculated by spqr_ssi
 nsvals_small = min(nsvals_small, min(m,n) - numerical_rank)
 
-nsvals_large = min(nsvals_large, rank_spqr)
-nsvals_large = min(nsvals_large, numerical_rank, numerical_rank - rank_spqr + stats_ssi.ssi_max_block_used)
+nsvals_large = min(nsvals_large, rank_spqr, numerical_rank)
+nsvals_large = min(nsvals_large, numerical_rank - rank_spqr + stats_ssi.ssi_max_block_used)
 
 # return nsvals_large + nsvals_small of the estimates
-est_sval_lower_bounds = est_sval_lower_boundsr[1:nsvals_large+nsvals_small]
+resize!(est_sval_lower_bounds, nsvals_large+nsvals_small)
 
 #-------------------------------------------------------------------------------
 # Estimate upper bounds on the singular values of A
@@ -180,7 +181,7 @@ if get_details == 1
     t = time_ns()
 end
 
-s = svd(Matrix(U'*R)).S
+s = svd(R' * U).S # Note: because U is dense, R' * U is dense for sparse R
 
 if get_details == 1
     stats.time_svd += time_ns() - t
@@ -189,32 +190,36 @@ end
 # Since the Frobenius norm of A*P - Q*R is norm_E_fro, the singular
 # values of A and R differ by at most norm_E_fro.  Therefore we have
 # the following upper bounds on the singular values of A:
-est_sval_upper_bounds = s .+ norm_E_fro
 
 # upper bounds on the remaining singular values of A are norm_E_fro
-est_sval_upper_bounds[length(S)+1:length(S)+min(m,n)-rank_spqr] = norm_E_fro
+est_sval_upper_bounds = fill(norm_E_fro, length(S)+min(m,n)-rank_spqr)
+copyto!(est_sval_upper_bounds, s .+ norm_E_fro)
 
 # return nsvals_large + nsvals_small components of the estimates
-est_sval_upper_bounds = est_sval_upper_bounds[1:nsvals_large+nsvals_small]
+@assert size(U, 2) == nsvals_large + nsvals_small
+resize!(est_sval_lower_bounds, nsvals_large+nsvals_small)
+U0 = view(U, :, nsvals_large+1:nsvals_large+nsvals_small)
+V0 = view(U, :, nsvals_large+1:nsvals_large+nsvals_small)
 
 #-------------------------------------------------------------------------------
 # if requested, calculate orthonormal basis for null space of A'
 #-------------------------------------------------------------------------------
 
+NT = []
 if nargout == 3
-
-    call_from = 1
-    NT, stats, stats_ssp_NT, est_sval_upper_bounds = spqr_rank_form_basis(call_from, A, U, V ,Q, rank_spqr, numerical_rank, stats, opts, est_sval_upper_bounds, nsvals_small, nsvals_large)
-
+    NT, stats, stats_ssp_NT, est_sval_upper_bounds =
+        spqr_rank_form_basis(1, A, U0, V0, Q, prow, rank_spqr, numerical_rank,
+                             stats, opts, est_sval_upper_bounds,
+                             nsvals_small, nsvals_large)
 end
 
 #-------------------------------------------------------------------------------
 # find solution R11 * wh = ch where R11 = R[:,1:rank_spqr]
 #-------------------------------------------------------------------------------
 
-call_from = 1
 R = view(R, :, 1:rank_spqr)   # discard R12, keep R11 only
-x = spqr_rank_deflation(call_from, R, U, V, C, m, n, rank_spqr, numerical_rank, nsvals_large, opts, p)
+x = spqr_rank_deflation(1, R, U0, V0, C, m, n, rank_spqr, numerical_rank, prow, pcol, Q;
+                        opts..., nsvals_large=nsvals_large)
 
 #-------------------------------------------------------------------------------
 # determine flag which indicates accuracy of the estimated numerical rank
@@ -226,7 +231,7 @@ stats_ssp_N = []
 if nargout < 3
     stats_ssp_NT = [ ]
 end
-stats  =  spqr_rank_assign_stats(call_from, est_sval_upper_bounds, est_sval_lower_bounds, tol, numerical_rank, nsvals_small, nsvals_large, stats, stats_ssi, opts, nargout, stats_ssp_N, stats_ssp_NT, start_tic)
+stats  =  0 # spqr_rank_assign_stats(call_from, est_sval_upper_bounds, est_sval_lower_bounds, tol, numerical_rank, nsvals_small, nsvals_large, stats, stats_ssi, opts, nargout, stats_ssp_N, stats_ssp_NT, start_tic)
 
 return x, stats, NT
 end
