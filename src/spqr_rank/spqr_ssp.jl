@@ -144,9 +144,10 @@ function spqr_ssp(A::AbstractMatrix{T}, N::Union{UniformScaling{T}, AbstractArra
     #-------------------------------------------------------------------------------
 
     m, n = size(A)
-    p = N isa UniformScaling ? n : size(N, 2)
+    n1 = N isa UniformScaling ? n : size(N, 1)
+    n2 = N isa UniformScaling ? n : size(N, 2)
     k = max(k, 0)
-    k = min(k, m, p)     # number of singular values to compute
+    k = min(k, m, n2)     # number of singular values to compute
     max_iters = max(1, max_iters)
     
     stats.flag = 1
@@ -171,42 +172,43 @@ function spqr_ssp(A::AbstractMatrix{T}, N::Union{UniformScaling{T}, AbstractArra
     #-------------------------------------------------------------------------------
     # block power iterations
     #-------------------------------------------------------------------------------
-
-    if get_details >= 1
-        t = time_ns()
-    end
+    get_details >= 1 && ( t = time_ns() )
 
     D2 = T[]
     X2 = T[]
     kth_est_error_bound = T(0)
+    
+    ASU = similar(U, n, k)
+    V1 = similar(U, n2, k)
+    NV = similar(U, n1, k)
+    U1 = similar(U)
+    ASU1 = similar(U, n)
+    V11 = similar(U, size(V1, 1))
+
+    crit = eps(norm(A)) * min(m, n) 
 
     iters = 0
     while iters < max_iters
         iters += 1
+        mul!(ASU, A', U)
+        mul!(V1, N', ASU)       
 
-        V1 = N' * (A' * U)
-
-        if get_details >= 1
-            time_svd = time_ns()
-        end
+        get_details == 1 && (time_svd = time_ns())
         V = svd(V1).U
-        if get_details >= 1
-            stats.time_svd += time_ns() - time_svd
-        end
+        get_details == 1 && (stats.time_svd += time_ns() - time_svd)
 
-        U1 = A * (N * V)
+        mul!(NV, N, V)
+        mul!(U1, A, NV)
 
-        if get_details >= 1
-            time_svd = time_ns()
-        end
+        get_details == 1 && (time_svd = time_ns())
         U, D2, X2 = svd(U1)
-        if get_details >= 1
-            stats.time_svd += time_ns() - time_svd
-        end
+        get_details == 1 && (stats.time_svd += time_ns() - time_svd)
 
         # estimate error bound on kth singular value
-        V1 = N' * (A' * U[:,k])
-        kth_est_error_bound = norm( V1 - V *( X2[:,k]*D2[k] ) ) / sqrt(2)
+        mul!(ASU1, A', U[:,k])
+        mul!(V11, N', ASU1)
+        V11 .-= V * ( X2[:,k] * D2[k] )
+        kth_est_error_bound = norm(V11) / sqrt(2)
 
         # Note that
         #     [ 0     B ] [  U   ]  =    [       U * D2          ]
@@ -220,8 +222,12 @@ function spqr_ssp(A::AbstractMatrix{T}, N::Union{UniformScaling{T}, AbstractArra
         # the eigenvalue of C is the kth singular value of B, although this is not
         # guaranteed.  kth_est_error_bound is our estimate of a bound on the error
         # in using D2[k,k] to approximate kth singular value of B.
+        
+        crit = max(convergence_factor * D2[k], crit)
 
-        if kth_est_error_bound <= convergence_factor* D2[k] && iters >= min_iters
+        println("ssp: kth_est = $kth_est_error_bound crit = $crit D2[$k] = $(D2[k]*convergence_factor)" )
+
+        if kth_est_error_bound <= crit && iters >= min_iters
             # The test indicates that the estimated relative error in
             # the estimate, D2[k,k] for the kth singular value is smaller than
             # convergence_factor, which is the goal.
@@ -230,7 +236,7 @@ function spqr_ssp(A::AbstractMatrix{T}, N::Union{UniformScaling{T}, AbstractArra
         end
     end
 
-    if get_details >= 1
+    if get_details == 1
         stats.iters = iters
         stats.time_iters = time_ns() - t
     end

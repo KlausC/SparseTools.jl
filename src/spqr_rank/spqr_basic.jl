@@ -77,14 +77,6 @@ start_tic = time_ns()
 opts, get_details, nsvals_small, nsvals_large = get_opts(opts, :get_details, :nsvals_small, :nsvals_large)
 opts, tol, normest_A = get_tol_norm(opts, A)
 stats = Statistics(real(T)) 
-# set the order of the stats fields
-#     stats.flag, stats.rank, stats.rank_spqr, stats.rank_spqr (if get_details
-#     >= 1), stats.tol, stats.tol_alt, stats.normest_A (if calculated),
-#     stats.est_sval_upper_bounds, stats.est_sval_lower_bounds, and
-#     stats.sval_numbers_for_bounds already initialized in spqr_rank_get_inputs
-if nargout == 3
-   stats.est_norm_A_transpose_times_NT = -1.0
-end
 
 # order for the additional stats fields for case where get_details is 1 will be
 #     set using spqr_rank_order_fields, called from spqr_rank_assign_stats
@@ -100,18 +92,18 @@ m, n = size(A)
 #-------------------------------------------------------------------------------
 
 # compute Q * R = A[prow,pcol] and C = Q' * B.
-Q, R, C, prow, pcol, info_spqr1 = spqr_wrapper(A, B, tol, get_details)
+Q, R, C, prow, pcol, info_spqr = spqr_wrapper(A, B, tol, get_details)
 
 # the next line is equivalent to: rank_spqr = size(R,1)
-rank_spqr = info_spqr1.rank_A_estimate
-norm_E_fro = info_spqr1.norm_E_fro
+rank_spqr = info_spqr.rank_A_estimate
+norm_E_fro = info_spqr.norm_E_fro
 
 # save the stats
 if get_details == 1 || get_details == 2
     stats.rank_spqr = rank_spqr
-end
-if get_details == 1
-    stats.info_spqr1 = info_spqr1
+    if get_details == 1
+        stats.info_spqr = info_spqr
+    end
 end
 
 #-------------------------------------------------------------------------------
@@ -124,9 +116,9 @@ U, S, V, stats_ssi = spqr_ssi(R11; opts..., get_details=get_details2)
 
 if get_details == 1 || get_details == 2
     stats.stats_ssi = stats_ssi
-end
-if get_details == 1
-    stats.time_svd = stats_ssi.time_svd
+    if get_details == 1
+        stats.time_svd = stats_ssi.time_svd
+    end
 end
 
 #-------------------------------------------------------------------------------
@@ -157,6 +149,8 @@ copyto!(est_sval_lower_bounds, max.(S - stats_ssi.est_error_bounds, 0))
 
 numerical_rank = stats_ssi.rank
 
+## println("basic: rank spqr: $rank_spqr numerical: $numerical_rank ssimaxblock: $(stats_ssi.ssi_max_block_used)")
+## println("basic: before: nsvals large: $nsvals_large small: $nsvals_small")
 # limit nsvals_small and nsvals_large due to number of singular values
 #     available and calculated by spqr_ssi
 nsvals_small = min(nsvals_small, min(m,n) - numerical_rank)
@@ -166,6 +160,8 @@ nsvals_large = min(nsvals_large, numerical_rank - rank_spqr + stats_ssi.ssi_max_
 
 # return nsvals_large + nsvals_small of the estimates
 resize!(est_sval_lower_bounds, nsvals_large+nsvals_small)
+## println("basic: after: nsvals large: $nsvals_large small: $nsvals_small")
+
 
 #-------------------------------------------------------------------------------
 # Estimate upper bounds on the singular values of A
@@ -177,15 +173,9 @@ resize!(est_sval_lower_bounds, nsvals_large+nsvals_small)
 # the rank_spqr by n matrix R.  Therefore we have upper bounds on the
 # singular values number rank_spqr - k + i, i = 1:k, of R:
 
-if get_details == 1
-    t = time_ns()
-end
-
+get_details == 1 && ( t = time_ns() )
 s = svd(R' * U).S # Note: because U is dense, R' * U is dense for sparse R
-
-if get_details == 1
-    stats.time_svd += time_ns() - t
-end
+get_details == 1 && ( stats.time_svd += time_ns() - t )
 
 # Since the Frobenius norm of A*P - Q*R is norm_E_fro, the singular
 # values of A and R differ by at most norm_E_fro.  Therefore we have
@@ -196,10 +186,13 @@ est_sval_upper_bounds = fill(norm_E_fro, length(S)+min(m,n)-rank_spqr)
 copyto!(est_sval_upper_bounds, s .+ norm_E_fro)
 
 # return nsvals_large + nsvals_small components of the estimates
-@assert size(U, 2) == nsvals_large + nsvals_small
 resize!(est_sval_lower_bounds, nsvals_large+nsvals_small)
-U0 = view(U, :, nsvals_large+1:nsvals_large+nsvals_small)
-V0 = view(U, :, nsvals_large+1:nsvals_large+nsvals_small)
+
+# restrict columns of U and V to the small singular values
+nu = size(U, 2)
+@assert nu >= nsvals_large "$nu >= $nsvals_large"
+U0 = view(U, :, nsvals_large+1:nu)
+V0 = view(V, :, nsvals_large+1:nu)
 
 #-------------------------------------------------------------------------------
 # if requested, calculate orthonormal basis for null space of A'
@@ -227,11 +220,21 @@ x = spqr_rank_deflation(1, R, U0, V0, C, m, n, rank_spqr, numerical_rank, prow, 
 #-------------------------------------------------------------------------------
 
 call_from = 1
-stats_ssp_N = []
+stats_ssp_N = missing
 if nargout < 3
     stats_ssp_NT = [ ]
 end
-stats  =  0 # spqr_rank_assign_stats(call_from, est_sval_upper_bounds, est_sval_lower_bounds, tol, numerical_rank, nsvals_small, nsvals_large, stats, stats_ssi, opts, nargout, stats_ssp_N, stats_ssp_NT, start_tic)
+#(call_from, est_sval_upper_bounds, est_sval_lower_bounds, tol, numerical_rank, nsvals_small, nsvals_large, stats, stats_ssi, opts, nargout, stats_ssp_N, stats_ssp_NT, start_tic)
+stats.est_sval_upper_bounds = est_sval_upper_bounds
+stats.est_sval_lower_bounds = est_sval_lower_bounds
+stats.tol = tol
+stats.rank = numerical_rank
+stats.stats_ssi = stats_ssi
+stats.opts_used = opts.data
+stats.stats_ssp_N = stats_ssp_N
+stats.stats_ssp_NT = stats_ssp_NT
+stats.time = time_ns() - start_tic
+
 
 return x, stats, NT
 end

@@ -190,9 +190,7 @@ function spqr_ssi(R::AbstractMatrix{T}; nargout=4, opts...) where T<:Number
         stats.ssi_min_block_used = nblock
     end
 
-    if (get_details == 1)
-        start_iters_tic = time_ns()
-    end
+    get_details == 1 && ( start_iters_tic = time_ns() )
 
     U = randn(private_stream, n, nblock)
     U = qr(U).Q * Matrix{T}(I, n, nblock) # random orthogonal matrix with nblock cols
@@ -205,28 +203,25 @@ function spqr_ssi(R::AbstractMatrix{T}; nargout=4, opts...) where T<:Number
     D2 = T[]
     X2 = T[]
     est_error_bound = T(0)
+
+    if R isa SubArray{<:Number,2,<:AbstractSparseMatrix}
+        R = sparse(R)
+    end
     
     iters = 0
     while iters < max_iters
         iters += 1
 
-        U0= U
+        U0 = U
         V1 = R \ U
         if !all(isfinite.(V1))
             flag_overflow = 1
-            println("break overflow")
             break   # *************>>>>> early exit from for loop
         end
 
-        if get_details == 1
-            time_svd = time_ns()
-        end
-
+        get_details == 1 && ( time_svd = time_ns() )
         V, D1, X1 = svd(V1)
-
-        if get_details == 1
-            stats.time_svd += time_ns() - time_svd
-        end
+        get_details == 1 && ( stats.time_svd += time_ns() - time_svd )
 
         U1 = R' \ V
         # Note: with the inverse power method overflow is a potential concern
@@ -235,7 +230,6 @@ function spqr_ssi(R::AbstractMatrix{T}; nargout=4, opts...) where T<:Number
             # We know of no matrix that triggers this condition, so the next
             # two lines are untested.
             flag_overflow = 1      # untested
-            println("break overflow 2")
             break                   # untested
         end
 
@@ -252,7 +246,6 @@ function spqr_ssi(R::AbstractMatrix{T}; nargout=4, opts...) where T<:Number
         k = findfirst(D2 .< tol^-1)
         if k == nothing && nblock == n
             # success since the numerical rank of R is zero
-            println("break all singular values <= tol")
             break   # *************>>>>> early exit from for loop
         end
 
@@ -290,9 +283,9 @@ function spqr_ssi(R::AbstractMatrix{T}; nargout=4, opts...) where T<:Number
             # number n - k + 1 of R.
 
             if nblock >= k + nsvals_large - 1 &&
-                est_error_bound <= convergence_factor * abs(1 / D2[k] - tol) &&
-                est_error_bound2 <= convergence_factor * abs( 1/D2[k2] ) &&
-                iters >= min_iters
+               est_error_bound <= convergence_factor * abs(1 / D2[k] - tol) &&
+               est_error_bound2 <= convergence_factor * abs( 1/D2[k2] ) &&
+               iters >= min_iters
 
                 # Motivation for the tests:
                 # The first test in the if statement is an attempt to insure
@@ -332,7 +325,6 @@ function spqr_ssi(R::AbstractMatrix{T}; nargout=4, opts...) where T<:Number
                 # error <= convergence_factor.
                 #
                 # SUCCESS!!!, found singular value or R larger than tol
-                println("found singval > tol")
                 break  # *************>>>>> early exit from for loop
             end
             nsvals_large = nsvals_large_old  # restore original value
@@ -341,7 +333,6 @@ function spqr_ssi(R::AbstractMatrix{T}; nargout=4, opts...) where T<:Number
         if nblock == max_block && iters >= min_iters && k == nothing
             # reached max_block block size without encountering any
             # singular values of R larger than tolerance
-            println("tatreak no sing values > tol found")
             break    # *************>>>>> early exit from for loop
         end
 
@@ -361,7 +352,6 @@ function spqr_ssi(R::AbstractMatrix{T}; nargout=4, opts...) where T<:Number
                 Y = qr(Y).Q * Matrix{T}(I, n, nblock-nblock_prev)
                 U = [U Y]
             end
-            println("blocksize $nblock_prev => $nblock")
         end
     end
 
@@ -466,9 +456,9 @@ function spqr_ssi(R::AbstractMatrix{T}; nargout=4, opts...) where T<:Number
         t = time_ns()
     end
 
-    norm_R_times_N = opnorm(R * V[:,nsvals_large+1:end])
-    # svals_R_transpose_times_NT = svd(R'*U[:,nsvals_large+1:end])'
-    norm_R_transpose_times_NT = opnorm(R' * U[:,nsvals_large+1:end])
+    norm_R_times_N = opnorm(R * V)
+    # svals_R_transpose_times_NT = svd(R'*U)'
+    norm_R_transpose_times_NT = opnorm(R' * U)
 
     if get_details == 1
         stats.norm_R_times_N = norm_R_times_N

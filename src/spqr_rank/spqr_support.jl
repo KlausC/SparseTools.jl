@@ -1,5 +1,6 @@
 
 import LinearAlgebra: size, mul!
+import Base: *
 
 struct ImplicitProd{T<:Number,TQ<:AbstractMatrix{T},TU<:AbstractMatrix{T}} <:AbstractMatrix{T}
     p1::AbstractVector{Int}
@@ -10,7 +11,6 @@ end
 
 function ImplicitProd(p1::AbstractVector{Int}, Q::AbstractMatrix{T}, p2::AbstractVector{Int}, U::AbstractMatrix{T}) where T<:Number
     
-    println(" $(size(p1)) $(size(Q, 1))")
     @assert isempty(p1) || length(p1) == size(Q, 1) && isperm(p1)
     @assert isempty(p2) || length(p2) == size(Q, 2) && isperm(p2)
     @assert size(U, 2) <= size(U, 1) <= size(Q, 2)
@@ -65,6 +65,8 @@ end
 
 size(A::ImplicitProd) = (size(A.Q, 1), size(A.U, 2) + size(A.Q, 2) - size(A.U, 1))
 
+*(A::ImplicitProd, B::AbstractVector) = mul!(similar(B, size(A, 1)), A, B)
+
 function mul!(C::AbstractVector, A::ImplicitProd, B::AbstractVector)
     checkdims(A, B)
     m, n, rk, nullity = sizes(A)
@@ -79,6 +81,8 @@ function mul!(C::AbstractVector, A::ImplicitProd, B::AbstractVector)
     C
 end
 
+*(A::ImplicitProd, B::AbstractMatrix) = mul!(similar(B, size(A, 1), size(B, 2)), A, B)
+
 function mul!(C::AbstractMatrix, A::ImplicitProd, B::AbstractMatrix)
     checkdims(A, B)
     m, n, rk, nullity = sizes(A)
@@ -92,6 +96,8 @@ function mul!(C::AbstractMatrix, A::ImplicitProd, B::AbstractMatrix)
     end
     C
 end
+
+*(A::Adjoint{<:Any,<:ImplicitProd}, B::AbstractVector) = mul!(similar(B, size(A, 1)), A, B)
 
 function mul!(C::AbstractVector, aA::Adjoint{<:Any,<:ImplicitProd}, B::AbstractVector)
     checkdims(aA, B)
@@ -112,24 +118,29 @@ function mul!(C::AbstractVector, aA::Adjoint{<:Any,<:ImplicitProd}, B::AbstractV
     C
 end
 
+*(A::Adjoint{<:Any,<:ImplicitProd}, B::AbstractMatrix) =
+    mul!(similar(B, size(A, 1), size(B, 2)), A, B)
+
 function mul!(C::AbstractMatrix, aA::Adjoint{<:Any,<:ImplicitProd}, B::AbstractMatrix)
     checkdims(aA, B)
     A = aA.parent
     m, n, rk, nullity = sizes(A)
     if ! isempty(A.p1)
         D = similar(B)
-        @inbounds D[A.p1,:] .= B
+        D[A.p1,:] .= B
     else
         D = B
     end
-    E = mul!(similar(D), A.Q', D)
+    E = A.Q' * D # mul! not defined for adjoints of Q mul!(similar(D), A.Q', D)
     if ! isempty(A.p2)
-        @inbounds E[A.p2,:] .= E
+        E[A.p2,:] .= E
     end
-    @inbounds C[1:nullity,:] = A.U' * E[1:rk,:]
-    @inbounds C[nullity+1:end,:] = E[rk+1:end,:]
+    C[1:nullity,:] .= A.U' * E[1:rk,:]
+    C[nullity+1:end,:] .= E[rk+1:end,:]
     C
 end
+
+mul!(C::AbstractArray, ::UniformScaling, B::AbstractArray) = C .= B
 
 function checkdims(A, B)
     m, n = size(A, 2), size(B, 1)
