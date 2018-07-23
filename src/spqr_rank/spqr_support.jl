@@ -9,11 +9,15 @@ struct ImplicitProd{T<:Number,TQ<:AbstractMatrix{T},TU<:AbstractMatrix{T}} <:Abs
     U::TU
 end
 
+const NOPERM = Base.OneTo(0)
+
 function ImplicitProd(p1::AbstractVector{Int}, Q::AbstractMatrix{T}, p2::AbstractVector{Int}, U::AbstractMatrix{T}) where T<:Number
     
     @assert isempty(p1) || length(p1) == size(Q, 1) && isperm(p1)
     @assert isempty(p2) || length(p2) == size(Q, 2) && isperm(p2)
     @assert size(U, 2) <= size(U, 1) <= size(Q, 2)
+    p1 = p1 == 1:length(p1) ? NOPERM : p1
+    p2 = p2 == 1:length(p2) ? NOPERM : p2
     ImplicitProd{T, typeof(Q), typeof(U)}(p1, Q, p2, U) 
 end
 
@@ -48,6 +52,9 @@ function Base.Matrix(A::ImplicitProd{T}) where T<:Number
     end
     X
 end
+
+Base.Matrix(aA::Adjoint{<:Any,<:ImplicitProd}) = Matrix(Matrix(aA.parent)')
+
 """
     `m, n, rk, nullity = sizes(A::ImplicitProd)`
 
@@ -65,42 +72,44 @@ end
 
 size(A::ImplicitProd) = (size(A.Q, 1), size(A.U, 2) + size(A.Q, 2) - size(A.U, 1))
 
-*(A::ImplicitProd, B::AbstractVector) = mul!(similar(B, size(A, 1)), A, B)
+## *(A::ImplicitProd, B::AbstractVector) = mul!(similar(B, size(A, 1)), A, B)
 
 function mul!(C::AbstractVector, A::ImplicitProd, B::AbstractVector)
-    checkdims(A, B)
+    checkdims(C, A, B)
     m, n, rk, nullity = sizes(A)
-    @inbounds D = [A.U * B[1:nullity]; B[nullity+1:end]]
+    @inbounds C[1:rk] .= A.U * B[1:nullity]
+    @inbounds C[rk+1:end] .= B[nullity+1:end]
     if ! isempty(A.p2)
-        D[:] .= D[A.p2]
+        C[:] .= C[A.p2]
     end
-    mul!(C, A.Q, D)
+    lmul!(A.Q, C)
     if ! isempty(A.p1)
         @inbounds C[:] .= C[A.p1]
     end
     C
 end
 
-*(A::ImplicitProd, B::AbstractMatrix) = mul!(similar(B, size(A, 1), size(B, 2)), A, B)
+## *(A::ImplicitProd, B::AbstractMatrix) = mul!(similar(B, size(A, 1), size(B, 2)), A, B)
 
 function mul!(C::AbstractMatrix, A::ImplicitProd, B::AbstractMatrix)
-    checkdims(A, B)
+    checkdims(C, A, B)
     m, n, rk, nullity = sizes(A)
-    @inbounds D = [A.U * B[1:nullity,:]; B[nullity+1:end,:]]
+    @inbounds C[1:rk,:] .= A.U * B[1:nullity,:]
+    @inbounds C[rk+1:end,:] .= B[nullity+1:end,:]
     if ! isempty(A.p2)
-        @inbounds D[:,:] .= D[A.p2,:]
+        @inbounds C[:,:] .= C[A.p2,:]
     end
-    mul!(C, A.Q, D)
+    lmul!(A.Q, C)
     if ! isempty(A.p1)
         @inbounds C[:,:] .= C[A.p1,:]
     end
     C
 end
 
-*(A::Adjoint{<:Any,<:ImplicitProd}, B::AbstractVector) = mul!(similar(B, size(A, 1)), A, B)
+## *(A::Adjoint{<:Any,<:ImplicitProd}, B::AbstractVector) = mul!(similar(B, size(A, 1)), A, B)
 
 function mul!(C::AbstractVector, aA::Adjoint{<:Any,<:ImplicitProd}, B::AbstractVector)
-    checkdims(aA, B)
+    checkdims(C, aA, B)
     A = aA.parent
     m, n, rk, nullity = sizes(A)
     if ! isempty(A.p1)
@@ -109,20 +118,19 @@ function mul!(C::AbstractVector, aA::Adjoint{<:Any,<:ImplicitProd}, B::AbstractV
     else
         D = B
     end
-    E = mul!(similar(D), A.Q', D)
+    lmul!(A.Q', D)
     if ! isempty(A.p2)
-        @inbounds E[A.p2] .= E
+        @inbounds D[A.p2] .= D
     end
-    @inbounds C[1:nullity] = A.U' * E[1:rk]
-    @inbounds C[nullity+1:end] = E[rk+1:end]
+    @inbounds C[1:nullity] = A.U' * D[1:rk]
+    @inbounds C[nullity+1:end] = D[rk+1:end]
     C
 end
 
-*(A::Adjoint{<:Any,<:ImplicitProd}, B::AbstractMatrix) =
-    mul!(similar(B, size(A, 1), size(B, 2)), A, B)
+## *(A::Adjoint{<:Any,<:ImplicitProd}, B::AbstractMatrix) = mul!(similar(B, size(A, 1), size(B, 2)), A, B)
 
 function mul!(C::AbstractMatrix, aA::Adjoint{<:Any,<:ImplicitProd}, B::AbstractMatrix)
-    checkdims(aA, B)
+    checkdims(C, aA, B)
     A = aA.parent
     m, n, rk, nullity = sizes(A)
     if ! isempty(A.p1)
@@ -140,12 +148,21 @@ function mul!(C::AbstractMatrix, aA::Adjoint{<:Any,<:ImplicitProd}, B::AbstractM
     C
 end
 
-mul!(C::AbstractArray, ::UniformScaling, B::AbstractArray) = C .= B
+function mul!(C::AbstractMatrix, aA::Adjoint{<:Any,<:ImplicitProd}, aB::Adjoint{<:Any,<:AbstractMatrix})
+    
+    mul!(C, aA, copy(aB))
+end
 
-function checkdims(A, B)
+mul!(C::AbstractArray, A::UniformScaling, B::AbstractArray) = ( C .= B; C .*= A[1,1]; C )
+
+function checkdims(C, A, B)
     m, n = size(A, 2), size(B, 1)
     if m != n
         text = "second dimension of A, $m, does not match first dimension of B, $n"
+        throw(DimensionMismatch(text))
+    end
+    if size(C, 1) != size(A, 1) || size(C, 2) != size(B, 2)
+        text = "destination dimensions $(size(C)) do not match result dimensions ($(size(A, 1)),$(size(B, 2)))"
         throw(DimensionMismatch(text))
     end
 end

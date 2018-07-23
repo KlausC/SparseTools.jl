@@ -225,7 +225,7 @@ function spqr_ssp(A::AbstractMatrix{T}, N::Union{UniformScaling{T}, AbstractArra
         
         crit = max(convergence_factor * D2[k], crit)
 
-        println("ssp: kth_est = $kth_est_error_bound crit = $crit D2[$k] = $(D2[k]*convergence_factor)" )
+        println("ssp: kth_est[$iters] = $kth_est_error_bound crit = $crit D2[$k] = $(D2[k])" )
 
         if kth_est_error_bound <= crit && iters >= min_iters
             # The test indicates that the estimated relative error in

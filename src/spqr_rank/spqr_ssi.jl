@@ -125,6 +125,8 @@ function spqr_ssi(R::AbstractMatrix{T}; nargout=4, opts...) where T<:Number
 
     opts, tol, normest_R = get_tol_norm(opts, R)
 
+    println("ssi(max_block=$max_block)")
+
     m, n = size(R)
     if m != n
         error("R must be square")

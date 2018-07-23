@@ -204,6 +204,8 @@ if nargout == 3
         spqr_rank_form_basis(1, A, U0, V0, Q, prow, rank_spqr, numerical_rank,
                              stats, opts, est_sval_upper_bounds,
                              nsvals_small, nsvals_large)
+
+    stats.est_err_bound_norm_A_transpose_times_NT = stats_ssp_NT.est_error_bounds[1]
 end
 
 #-------------------------------------------------------------------------------
@@ -234,7 +236,6 @@ stats.opts_used = opts.data
 stats.stats_ssp_N = stats_ssp_N
 stats.stats_ssp_NT = stats_ssp_NT
 stats.time = time_ns() - start_tic
-
 
 return x, stats, NT
 end

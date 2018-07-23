@@ -26,9 +26,11 @@ function spqr_wrapper(A::AbstractArray{T}, B::AbstractArray{T}, tol, get_details
         qrf = qr(A, tol=tol)
         Q, R, prow, pcol = qrf.Q, qrf.R, qrf.prow, qrf.pcol
         rk = maximum(R.rowval)
-        norm_E_fro = errornorm(Q, A, rk, prow, pcol)
+        norm_E_fro = sqrt(sum((sum(abs2,A,dims=1)[pcol] - sum(abs2,R,dims=1)[:])[rk+1:end]))
         Q, R, prow, pcol, rk, norm_E_fro
     end
+
+    _spqr_wrapper(A::Adjoint{<:Any,<:AbstractSparseMatrix}, t) = _spqr_wrapper(sparse(A), t)
 
     function _spqr_wrapper(A::AbstractArray, tol)
         qrf = qr(A, Val(true)) # enable column pivoting
@@ -37,9 +39,8 @@ function spqr_wrapper(A::AbstractArray{T}, B::AbstractArray{T}, tol, get_details
         k = findlast(gt(tol), diag(R))
         rk = k == nothing ? 0 : k
         norm_E_fro = norm(view(R, k+1:rm, k+1:rn))
+        # norm_E_fro1 = norm(A[prow,pcol] - Q * R, 2) much more effort!
         R[k+1:end,:] .= 0
-        # compute Q*R = A[prow,pcol]
-        norm_E_fro1 = norm(A[prow,pcol] - Q * R, 2)
         Q, R, prow, pcol, rk, norm_E_fro
     end
 
