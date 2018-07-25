@@ -1,7 +1,7 @@
 using Random
 using LinearAlgebra
 
-export spqr_ssp, normest
+export spqr_ssp, normest, normestinv
 
 #==
 SPQR_SSP block power method or subspace iteration applied to A or A*N
@@ -293,14 +293,71 @@ end
 
 
 """
-    normest(A, [convergence_factor]; [max_iters=...])
+    normest(A; [tol=convergence_factor], [max_iters=...])
 
-Estimate 2-norm of matrix A, power-iterating (A*A') until given tolerance.
+Estimate 2-norm of matrix A, power-iterating `A'A` up to given tolerance.
 """
-function normest(A::AbstractMatrix{T}, tol::Real = 1e-6; max_iters::Int = 100) where T
+function normest(A::AbstractMatrix{T}; tol::AbstractFloat = 1e-6,
+                 max_iters::Integer = 100) where T <:Number
+
     min_iters = 2
     max_iters = max(max_iters, min_iters)
-    S = spqr_ssp(A, one(T)*I, nargout=1, k=1, ssp_convergence_factor=abs(tol),
-                              ssp_min_iters=min_iters, ssp_max_iters=max_iters, get_details=0)
-    S[1]
+    tol = max(tol, eps())
+    ncols = size(A, 2)
+    y = randn(T, ncols)
+    k = argmax(sum(abs, A, dims=1))[2]
+    y[k] += sign(y[k]) * 0.1
+    lmul!(1/norm(y), y)
+    i = 0
+    n = 0.0
+    n0 = n
+    x = Vector{T}(undef, size(A,1))
+    while ( abs(n - n0) > tol * n || i < min_iters ) && i < max_iters
+        i += 1
+        n0 = n
+        mul!(x, A, y)
+        normx = norm(x)
+        if normx == 0
+            x = rand(T, ncols)
+        end
+        lmul!(1/norm(x), x)
+        mul!(y, A', x)
+        n = norm(y)
+    end
+    n, i
+end
+
+"""
+    normestinv(A; [tol=convergence_factor], [max_iters=...])
+
+Estimate 2-norm of inverse of matrix A, power-iterating `A⁻¹'A⁻¹` up to given tolerance.
+"""
+function normestinv(A::AbstractMatrix{T}; tol::AbstractFloat = 1e-6,
+                    max_iters::Integer = 100) where T <:Number
+
+    min_iters = 2
+    max_iters = max(max_iters, min_iters)
+    tol = max(tol, eps())
+    ncols = size(A, 2)
+    y = randn(T, ncols)
+    lmul!(1/norm(y), y)
+    i = 0
+    n = 0.0
+    n0 = n
+    x = Vector{T}(undef, size(A,1))
+    while ( abs(n - n0) > tol * n || i < min_iters ) && i < max_iters
+        i += 1
+        n0 = n
+        # ldiv!(x, A, y)
+        x = A \ y
+        normx = norm(x)
+        if normx == 0
+            x = rand(T, ncols)
+        end
+        lmul!(1/norm(x), x)
+        #ldiv!(y, A', x)
+        y = A' \ x
+        n = norm(y)
+    end
+    n, i
 end
