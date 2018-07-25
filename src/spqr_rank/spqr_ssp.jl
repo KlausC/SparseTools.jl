@@ -324,7 +324,7 @@ function normest(A::AbstractMatrix{T}; tol::AbstractFloat = 1e-6,
         mul!(y, A', x)
         n = norm(y)
     end
-    n, i
+    n
 end
 
 """
@@ -359,5 +359,5 @@ function normestinv(A::AbstractMatrix{T}; tol::AbstractFloat = 1e-6,
         y = A' \ x
         n = norm(y)
     end
-    n, i
+    n
 end

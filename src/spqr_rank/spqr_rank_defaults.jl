@@ -43,7 +43,7 @@ function get_tol_norm(opts::Pairs, A::AbstractMatrix{T}) where T
             rtol = max(size(A)...) * eps(real(T))
         end
         if rtol > 0.0 
-            normest_A = tol_norm_type != 2 ? opnorm(A, tol_norm_type) : normest(A, 0.01) 
+            normest_A = tol_norm_type != 2 ? opnorm(A, tol_norm_type) : normest(A, tol=0.01) 
             xtol = rtol * normest_A
         end
         tol = max(atol, xtol)
