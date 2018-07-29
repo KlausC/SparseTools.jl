@@ -335,6 +335,70 @@ Estimate 2-norm of inverse of matrix A, power-iterating `A⁻¹'A⁻¹` up to gi
 function normestinv(A::AbstractMatrix{T}; tol::AbstractFloat = 1e-6,
                     max_iters::Integer = 100) where T <:Number
 
+    if istriu(A)
+        _normestinv(UpperTriangular(A), tol, max_iters)
+    elseif istril(A)
+        _normestinv(LowerTriangular(A), tol, max_iters)
+    else
+        _normestinv(A, tol, max_iters)
+    end
+end
+
+function _normestinv(A::Union{Adjoint{<:Any,<:AbstractSparseMatrix},
+                              Transpose{<:Any,<:AbstractSparseMatrix}},
+                              tol::AbstractFloat, max_iters::Integer)
+
+    _normestinv(A.parent, tol, max_iters)
+end
+
+function _normestinv(A::AbstractSparseMatrix{T}, tol::AbstractFloat = 1e-6,
+                    max_iters::Integer = 100) where T <:Number
+
+    m, n = size(A)
+    tol2 = max(tol^2, eps())
+    if m < n
+        A = sparse(A')
+    end
+    qrf = qr(A, tol=tol^2) # TODO that is not clean
+    
+    R = qrf.R
+    m1, n1 = size(R)
+    if min(m1, n1) < min(m, n)
+        return Inf
+    elseif m1 > n1 
+        R = SparseMatrixCSC(n1, n1, R.colptr, R.rowval, R.nzval)
+    elseif m1 < n1
+        R = SparseMatrixCSC(m1, m1, R.colptr[1:m1+1], R.rowval, R.nzval)
+    end
+    _normestinv(UpperTriangular(R), tol, max_iters)
+end
+
+function _normestinv(A::AbstractMatrix{T}, tol::AbstractFloat = 1e-6,
+                    max_iters::Integer = 100) where T <:Number
+    
+    m, n = size(A)
+    if m < n
+        A = A'
+    end
+    qrf = qr(A, Val(true))
+    R = qrf.R
+    m1, n1 = size(R)
+    if min(m1, n1) < min(m, n)
+        Inf
+    else
+        R = view(R, 1:m1, 1:m1)
+    end
+    _normestinv(UpperTriangular(R), tol, max_iters)
+end
+
+function normestinv(A::LinearAlgebra.AbstractTriangular{T}; tol::AbstractFloat = 1e-6,
+                    max_iters::Integer = 100) where T <:Number
+    _normestinv(A, tol, max_iters)
+end
+
+function _normestinv(A::LinearAlgebra.AbstractTriangular{T}, tol::AbstractFloat,
+                    max_iters::Integer) where T <:Number
+
     min_iters = 2
     max_iters = max(max_iters, min_iters)
     tol = max(tol, eps())
