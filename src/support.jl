@@ -7,28 +7,29 @@ struct ImplicitProd{T<:Number,TQ<:AbstractMatrix{T},TU<:AbstractMatrix{T}} <:Abs
     Q::TQ
     p2::AbstractVector{Int}
     U::TU
+
+    function ImplicitProd(p1::AbstractVector{Int}, Q::AbstractMatrix{T},
+                          p2::AbstractVector{Int}, U::AbstractMatrix{T}) where T<:Number
+    
+        @assert isempty(p1) || length(p1) == size(Q, 1) && isperm(p1)
+        @assert isempty(p2) || length(p2) == size(Q, 2) && isperm(p2)
+        @assert size(U, 2) <= size(U, 1) <= size(Q, 2)
+        p1 = p1 == 1:length(p1) ? NOPERM : p1
+        p2 = p2 == 1:length(p2) ? NOPERM : p2
+        new{T, typeof(Q), typeof(U)}(p1, Q, p2, U) 
+    end
 end
 
 const NOPERM = Base.OneTo(0)
 
-function ImplicitProd(p1::AbstractVector{Int}, Q::AbstractMatrix{T}, p2::AbstractVector{Int}, U::AbstractMatrix{T}) where T<:Number
-    
-    @assert isempty(p1) || length(p1) == size(Q, 1) && isperm(p1)
-    @assert isempty(p2) || length(p2) == size(Q, 2) && isperm(p2)
-    @assert size(U, 2) <= size(U, 1) <= size(Q, 2)
-    p1 = p1 == 1:length(p1) ? NOPERM : p1
-    p2 = p2 == 1:length(p2) ? NOPERM : p2
-    ImplicitProd{T, typeof(Q), typeof(U)}(p1, Q, p2, U) 
-end
-
 ImplicitProd(Q::AbstractMatrix{T}, U::AbstractMatrix{T}) where T =
-ImplicitProd(1:0, Q, 1:0, U)
+    ImplicitProd(1:0, Q, 1:0, U)
 
 ImplicitProd(p1::AbstractVector{Int}, Q::AbstractMatrix{T}, U::AbstractMatrix{T}) where T =
-ImplicitProd(p1, Q, 1:0, U)
+    ImplicitProd(p1, Q, 1:0, U)
 
 ImplicitProd(Q::AbstractMatrix{T}, p2::AbstractVector{Int}, U::AbstractMatrix{T}) where T =
-ImplicitProd(1:0, Q, p2, U)
+    ImplicitProd(1:0, Q, p2, U)
 
 Base.show(io::IO, A::ImplicitProd) = show(io, MIME("text/plain"), A)
 Base.show(io::IO, ::MIME"text/plain", A::ImplicitProd) = Base.show_default(io, A)
